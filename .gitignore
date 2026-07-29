@@ -1,0 +1,30 @@
+# Binaries
+/bin/
+*.exe
+*.test
+*.out
+*.cov
+coverage/
+
+# Go workspace
+go.work
+
+# Environment (keep .env.example tracked)
+.env
+.env.local
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# DS
+.DS_Store
+
+# Docker
+.docker/
+
+# Atlas auto-generated checksum (keep migration/*.sql tracked)
+migrations/atlas.sum
+

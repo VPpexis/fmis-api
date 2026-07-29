@@ -1,0 +1,34 @@
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - gosimple
+    - unused
+    - ineffassign
+    - misspell
+    - gocritic
+    - revivie
+    - gosec
+    - whitespace
+
+linters-settings:
+  govet:
+    enable-all: true
+  staticcheck:
+    checks: ["all"]
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+
+run:
+  timeout: 3m
+  tests: true
+  modules-download-mode: readonly
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 50
+  exclude-dirs:
+    - vendor

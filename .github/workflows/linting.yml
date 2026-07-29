@@ -1,0 +1,47 @@
+name: golangci-lint
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+
+permissions:
+    contents: read
+
+jobs:
+    golangci:
+        name: lint
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v7
+
+            - name: Setup Go
+              uses: actions/setup-go@v6
+              with:
+                 go-version: stable
+                 
+            - name: golangci-lint
+              uses: golangci/golangci-lint-action@v7
+              with:
+                version: v2.12
+
+    vet:
+        name: go-vet
+        runs-on: ubuntu-latest
+
+        steps:
+        - name: Checkout Code
+          uses: actions/checkout@v6
+
+        - name: Setup Go
+          uses: actions/setup-go@v6
+          with:
+            go-version: stable
+        
+        - name: Run go vet
+          run: go vet ./...
+
+        - name: Run go mod tidy
+          run: go mod tidy && git diff --exit-code
+          
