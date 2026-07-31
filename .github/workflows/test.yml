@@ -1,0 +1,43 @@
+name: tests
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+
+permissions:
+    contents: read
+
+jobs:
+    test:
+        name: go-test
+        runs-on: ubuntu-latest
+
+        services:
+            postgres:
+                image: postgres:16-alpine
+                env:
+                    POSTGRES_USER: test
+                    POSTGRES_PASSWORD: test
+                    POSTGRES_DB: fmis_test
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd pg_isready -U test -d fmis_test
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v7
+
+            - name: Setup Go
+              uses: actions/setup-go@v6
+              with:
+                go-version: 1.26
+
+            - name: Run tests
+              run: go test ./... -v -race
+              env:
+                DATABASE_URL: postgres://test:test@localhost:5432/fmis_test?sslmode=disable
