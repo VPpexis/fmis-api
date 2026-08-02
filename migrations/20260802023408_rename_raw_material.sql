@@ -1,1 +1,0 @@
-ALTER TYPE "public"."product_type" RENAME VALUE 'RAW_MATERIALS' TO 'RAW_MATERIAL';

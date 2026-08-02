@@ -1,5 +1,5 @@
 -- Create enum type "product_type"
-CREATE TYPE "public"."product_type" AS ENUM ('RAW_MATERIALS', 'PACKAGING', 'FINISHED_GOOD', 'WHITE_LABEL');
+CREATE TYPE "public"."product_type" AS ENUM ('RAW_MATERIAL', 'PACKAGING', 'FINISHED_GOOD', 'WHITE_LABEL');
 -- Create enum type "batch_status"
 CREATE TYPE "public"."batch_status" AS ENUM ('ACTIVE', 'DEPLETED', 'QUARANTINED', 'EXPIRED');
 -- Create enum type "transaction_type"
