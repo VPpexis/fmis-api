@@ -304,7 +304,7 @@ type Config struct {
 
 ### 3. Database Schema Migrations (Atlas)
 
-* All schema changes are defined declaratively in an Atlas HCL file (`atlas.hcl`) or SQL files.
+* All schema changes are defined declaratively in an Atlas HCL file (`schema.hcl`) or SQL files.
 * Atlas inspects the target database, computes the diff against the desired schema, and generates migration scripts.
 * Migrations are applied automatically by the CI/CD pipeline before new application containers go live.
 * Rollbacks are supported via Atlas's versioned migration directory.
@@ -397,7 +397,7 @@ food-inventory-api/
 │       ├── production.go            # Production order execution
 │       └── fefo.go                  # FEFO sorting/selection algorithm
 ├── migrations/
-│   └── atlas.hcl                    # Atlas declarative schema definition
+│   └── schema.hcl                    # Atlas declarative schema definition
 ├── docs/
 ├── tests/
 │   ├── integration/
