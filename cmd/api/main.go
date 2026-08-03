@@ -34,7 +34,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	handler := routers.New()
+	handler := routers.New(pool)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
