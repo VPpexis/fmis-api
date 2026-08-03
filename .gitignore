@@ -1,10 +1,14 @@
 # Binaries
 /bin/
+/main
 *.exe
 *.test
 *.out
 *.cov
 coverage/
+
+# Air hot-reload output (tmp_dir in .air.toml)
+/tmp/
 
 # Go workspace
 go.work
