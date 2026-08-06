@@ -9,19 +9,36 @@ A product-grade REST API for food manufacturing inventory management, built in G
 - **Production Orders** - White-label assembly with atomic batch consumption
 - **RBAC** - `SELECT ... FOR UPDATE` for race-condition-safe inventory deductions
 - **Immutable Audit Logs** - All stock movements recorded as transactions.
+
+## Implementation Status
+
+| Area | Status |
+|---|---|
+| API entry point (`cmd/api/main.go`) | Done |
+| Config (`internal/config`) | Done |
+| pgx pool (`internal/database`) | Done |
+| chi router + `/health` (`internal/routers`) | Done |
+| Atlas schema + migrations | Done |
+| JWT auth middleware | Next (issue #16) |
+| Auth / products / batches / inventory / production API | Planned |
+| Models, repositories, schemas, services | Planned |
+| Tests (`tests/`) | Planned |
+| `sqlc.yaml` | Planned |
+
+See `docs/PROJECT_DESIGN.md` for the authoritative spec.
   
 ## Tech Stack
-| Concern | Library |
-|---------|--------|
-| HTTP Router | `go-chi/chi/v5` |
-| Database Driver | `jackc/pgx/v5` |
-| Validation | `go-playground/validator/v10` |
-| Configuration | `caarlos0/env/v11` |
-| Auth | `golang-jwt/jwt/v5` + bcrypt |
-| Migrations | `atlasgo/atlas` |
-| Testing | `stretchr/testify` |
-| Linting | `golangci-lint` |
-| Hot Reload | `air` |
+| Concern | Library | Status |
+|---------|---------|--------|
+| HTTP Router | `go-chi/chi/v5` | Implemented |
+| Database Driver | `jackc/pgx/v5` | Implemented |
+| Configuration | `caarlos0/env/v11` | Implemented |
+| Migrations | `atlasgo/atlas` | Implemented |
+| Auth | `golang-jwt/jwt/v5` + bcrypt | Planned |
+| Validation | `go-playground/validator/v10` | Planned |
+| Testing | `stretchr/testify` | Planned |
+| Linting | `golangci-lint` | Implemented |
+| Hot Reload | `air` | Implemented |
 
 ## Prerequisites
 
@@ -47,7 +64,7 @@ docker compose up db
 ### 3. Run migrations
 
 ```bash
-atlast migrate apply --env local
+atlas migrate apply --env local
 ```
 
 ### 4. Start the API (with hot reload)
@@ -56,7 +73,7 @@ atlast migrate apply --env local
 docker compose up api
 ```
 
-API will be avilable at `http://localhost:8080`
+API will be available at `http://localhost:8080`
 
 ## Project Structure
 
@@ -66,15 +83,15 @@ API will be avilable at `http://localhost:8080`
 ├── cmd/api/                  # Application entry point
 ├── internal/
 │   ├── config/               # Env-based config struct
-│   ├── database/             # pgx pool + sqlc queries
-│   ├── middleware/            # JWT auth, RBAC, logging
-│   ├── models/               # Domain structs
-│   ├── repositories/         # Data access layer
+│   ├── database/             # pgx pool
 │   ├── routers/              # chi route groups
-│   ├── schemas/              # Request/response DTOs
-│   └── services/             # Business logic
+│   ├── middleware/           # JWT auth, RBAC, logging (planned)
+│   ├── models/               # Domain structs (planned)
+│   ├── repositories/         # Data access layer (planned)
+│   ├── schemas/              # Request/response DTOs (planned)
+│   └── services/             # Business logic (planned)
 ├── migrations/               # Atlas migration files
-├── tests/                    # Integration + unit tests
+├── atlas.hcl                 # Atlas config
 ├── docker-compose.yml        # Local dev environment
 ├── Dockerfile                # Multi-stage build (dev + prod)
 └── .golangci.yml             # Linter configuration
@@ -124,10 +141,10 @@ See `docs/PROJECT_DESIGN.md` for the full API specification.
 The production Docker image is built from the default stage (scratch-based, ~15 MB):
 
 ```bash
-docker build -t fmis-api
+docker build -t fmis-api .
 ```
 
-Deployment targets AWS (ECS Fargate / APP Runner). Environment variable are injected via ECS task defintion (Secrets Manager for sensitive values).
+Deployment targets AWS (ECS Fargate / App Runner). Environment variables are injected via ECS task definition (Secrets Manager for sensitive values).
 
 ## License
 

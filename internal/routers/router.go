@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chimw "github.com/go-chi/chi/v5/middleware"
+
+	"fmis-api/internal/middleware"
 )
 
 // Pinger reports whether the backing data store is reachable.
@@ -17,11 +19,11 @@ type Pinger interface {
 }
 
 // New builds the chi router with base middleware and routes.
-func New(pinger Pinger) http.Handler {
+func New(pinger Pinger, jwtSecret string) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.RequestID)
-	r.Use(middleware.Recoverer)
+	r.Use(chimw.RequestID)
+	r.Use(chimw.Recoverer)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -34,6 +36,10 @@ func New(pinger Pinger) http.Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
+	})
+
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Auth(jwtSecret))
 	})
 
 	return r

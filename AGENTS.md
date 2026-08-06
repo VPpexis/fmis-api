@@ -1,16 +1,16 @@
 # AGENTS.md
 
-## Repo state (do not be fooled by the README)
-- This is a **scaffold**: `cmd/`, `internal/`, `migrations/`, `tests/`, `atlas.hcl`, `sqlc.yaml` do not exist yet, though README.md and docs/PROJECT_DESIGN.md describe them.
-- `docker compose up api` fails to build — there is no `cmd/api/main.go` yet. Only `docker compose up db` works today.
+## Repo state
+- **Implemented:** `cmd/api/main.go` entry point (config load, pgx pool, `/health`, graceful shutdown); `internal/config`, `internal/database` (pgx pool init), `internal/routers` (chi router + health check); Atlas setup (`atlas.hcl`, `migrations/schema.hcl`, `migrations/20260802033509_create_initial_schema.sql`); CI (`linting.yml`, `test.yml`).
+- **Not yet implemented:** `internal/middleware`, `internal/models`, `internal/repositories`, `internal/schemas`, `internal/services`, `tests/`, `sqlc.yaml`. JWT auth (issue #16) and all `/api/v1/*` routes are next.
 - `docs/PROJECT_DESIGN.md` is the authoritative spec (layering, endpoints, RBAC matrix, entity schema, FEFO rules). Read it before implementing any feature; README is a summary.
 
 ## Commands
-- Lint: `golangci-lint run ./...` (v2.12 per CI). `.golangci.yml` lists `revivie` — a typo for `revive`; the run fails on the unknown linter until that is corrected.
+- Lint: `golangci-lint run ./...` (v2.12 per CI).
 - Vet: `go vet ./...`. Tests: `go test ./... -v -race`.
-- CI also enforces `go mod tidy && git diff --exit-code` — commit with tidy go.mod/go.sum. All deps are currently marked `// indirect` (no code yet); `go mod tidy` rewrites them once code lands.
+- CI also enforces `go mod tidy && git diff --exit-code` — commit with tidy go.mod/go.sum. Direct deps today: `caarlos0/env/v11`, `go-chi/chi/v5`, `jackc/pgx/v5`. `golang-jwt/jwt/v5`, `go-playground/validator/v10`, `testify` are still to be added.
 - Local dev DB: `docker compose up db` (compose reads `.env.local`, which is gitignored). Its `DATABASE_URL` points at host `db` — only resolvable inside the compose network; for host-side `go run`, override with `localhost:5432`.
-- Migrations use the Atlas CLI (not a Go dep; not installed here). `atlas.hcl` + `migrations/` still need to be created; README/design doc reference `atlas migrate diff|apply --env local`.
+- Migrations use the Atlas CLI (not a Go dep; not installed here). `atlas.hcl` + `migrations/` exist; use `atlas migrate diff|apply --env local`.
 - Toolchain: Go 1.26+, entry point is fixed at `cmd/api/main.go` (Dockerfile prod stage and `.air.toml` both reference it).
 
 ## Architecture rules (enforced by design doc)
