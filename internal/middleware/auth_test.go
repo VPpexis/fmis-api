@@ -113,7 +113,7 @@ func TestAuthRejectsUnauthenticatedRequests(t *testing.T) {
 }
 
 func TestRecovererReturns500OnPanic(t *testing.T) {
-	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	panicHandler := http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		panic("boom")
 	})
 
