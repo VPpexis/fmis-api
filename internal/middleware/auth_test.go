@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -56,6 +58,12 @@ func serve(t *testing.T, secret, authHeader string) (*httptest.ResponseRecorder,
 	return rec, capturer
 }
 
+// tokenWithoutBearerPrefix returns a structurally valid token used to prove
+// that a missing "Bearer " scheme is rejected even when the token itself is fine.
+func tokenWithoutBearerPrefix(t *testing.T) string {
+	return signToken(t, testSecret, "user-123", "VIEWER", time.Now().Add(time.Minute))
+}
+
 func TestAuthValidTokenPopulatesContext(t *testing.T) {
 	token := signToken(t, testSecret, "user-123", "ADMIN", time.Now().Add(time.Minute))
 
@@ -104,8 +112,17 @@ func TestAuthRejectsUnauthenticatedRequests(t *testing.T) {
 	}
 }
 
-// tokenWithoutBearerPrefix returns a structurally valid token used to prove
-// that a missing "Bearer " scheme is rejected even when the token itself is fine.
-func tokenWithoutBearerPrefix(t *testing.T) string {
-	return signToken(t, testSecret, "user-123", "VIEWER", time.Now().Add(time.Minute))
+func TestRecovererReturns500OnPanic(t *testing.T) {
+	panicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("boom")
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+
+	Recoverer(slog.New(slog.NewTextHandler(io.Discard, nil)))(panicHandler).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
 }

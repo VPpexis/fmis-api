@@ -1,4 +1,4 @@
-// Package middleware provides cross-cutting HTTP concerns: JWT authentication, and future RBAC/logging.
+// Package middleware provides cross-cutting HTTP concerns: JWT authentication, and future RBAC.
 package middleware
 
 import (
