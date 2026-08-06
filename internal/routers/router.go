@@ -19,11 +19,13 @@ type Pinger interface {
 }
 
 // New builds the chi router with base middleware and routes.
-func New(pinger Pinger, jwtSecret string) http.Handler {
+func New(pinger Pinger, jwtSecret string, logger *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(middleware.CORS("*"))
 	r.Use(chimw.RequestID)
-	r.Use(chimw.Recoverer)
+	r.Use(middleware.Logging(logger))
+	r.Use(middleware.Recoverer(logger))
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
