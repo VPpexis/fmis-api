@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"fmis-api/internal/models"
 )
 
 const testSecret = "test-secret"
@@ -58,10 +60,54 @@ func serve(t *testing.T, secret, authHeader string) (*httptest.ResponseRecorder,
 	return rec, capturer
 }
 
+// serveWithRole runs the Auth middleware followed by Request
+func serveWithRole(t *testing.T, role string, allowed ...models.UserRoleType) (*httptest.ResponseRecorder, *contextCapturer) {
+	t.Helper()
+	token := signToken(t, testSecret, "user-123", role, time.Now().Add(time.Minute))
+	capturer := &contextCapturer{}
+	req := httptest.NewRequest(http.MethodGet, "/protected", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	Auth(testSecret)(RequireRole(allowed...)(http.HandlerFunc(capturer.capture))).ServeHTTP(rec, req)
+	return rec, capturer
+}
+
 // tokenWithoutBearerPrefix returns a structurally valid token used to prove
 // that a missing "Bearer " scheme is rejected even when the token itself is fine.
 func tokenWithoutBearerPrefix(t *testing.T) string {
 	return signToken(t, testSecret, "user-123", "VIEWER", time.Now().Add(time.Minute))
+}
+
+// TestRequiredRoleEnforcesMatrix testing Roles.
+func TestRequireRoleEnforcesMatrix(t *testing.T) {
+	tests := []struct {
+		name    string
+		role    string
+		allowed []models.UserRoleType
+		want    int
+	}{
+		{"admin on admin route", "ADMIN", []models.UserRoleType{models.UserRoleTypeAdmin}, http.StatusOK},
+		{"operator on admin+operator route", "OPERATOR", []models.UserRoleType{models.UserRoleTypeAdmin, models.UserRoleTypeOperator}, http.StatusOK},
+		{"viewer on admin route", "VIEWER", []models.UserRoleType{models.UserRoleTypeAdmin}, http.StatusForbidden},
+		{"viewer on admin+operator route", "VIEWER", []models.UserRoleType{models.UserRoleTypeOperator, models.UserRoleTypeAdmin}, http.StatusForbidden},
+		{"uknown role rejected", "SUPERUSER", []models.UserRoleType{models.UserRoleTypeAdmin}, http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec, capturer := serveWithRole(t, tt.role, tt.allowed...)
+
+			if rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+			if tt.want == http.StatusOK && !capturer.called {
+				t.Error("handler was not reached")
+			}
+			if tt.want == http.StatusForbidden && capturer.called {
+				t.Error("handler ran despite 403")
+			}
+		})
+	}
 }
 
 func TestAuthValidTokenPopulatesContext(t *testing.T) {
