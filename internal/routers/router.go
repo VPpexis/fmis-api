@@ -11,6 +11,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"fmis-api/internal/middleware"
+	"fmis-api/internal/services"
 )
 
 // Pinger reports whether the backing data store is reachable.
@@ -19,7 +20,7 @@ type Pinger interface {
 }
 
 // New builds the chi router with base middleware and routes.
-func New(pinger Pinger, jwtSecret string, logger *slog.Logger) http.Handler {
+func New(auth *services.AuthService, pinger Pinger, jwtSecret string, logger *slog.Logger) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.CORS("*"))
@@ -42,6 +43,10 @@ func New(pinger Pinger, jwtSecret string, logger *slog.Logger) http.Handler {
 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(jwtSecret))
+	})
+
+	r.Route("/api/v1/auth", func(r chi.Router) {
+		NewAuthRouter(auth, logger).Routes(r)
 	})
 
 	return r
