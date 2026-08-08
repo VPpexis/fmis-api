@@ -9,6 +9,7 @@ A product-grade REST API for food manufacturing inventory management, built in G
 - **Production Orders** - White-label assembly with atomic batch consumption
 - **RBAC** - `SELECT ... FOR UPDATE` for race-condition-safe inventory deductions
 - **Immutable Audit Logs** - All stock movements recorded as transactions.
+- **JWT Authentication** - bcrypt-hashed passwords, 15m access tokens + 7d refresh tokens (SHA-256 stored)
 
 ## Implementation Status
 
@@ -19,11 +20,14 @@ A product-grade REST API for food manufacturing inventory management, built in G
 | pgx pool (`internal/database`) | Done |
 | chi router + `/health` (`internal/routers`) | Done |
 | Atlas schema + migrations | Done |
-| JWT auth middleware | Next (issue #16) |
-| Auth / products / batches / inventory / production API | Planned |
-| Models, repositories, schemas, services | Planned |
-| Tests (`tests/`) | Planned |
-| `sqlc.yaml` | Planned |
+| Middleware: JWT auth, RBAC, logging, CORS, recovery | Done (issue #16) |
+| Domain models (`internal/models`) | Done (issue #19) |
+| Auth endpoints: register + login (issue #22) | Done |
+| Repositories / schemas / services | In progress (auth domain done) |
+| Products / batches / inventory / production API | Planned |
+| Unit tests (middleware, auth service) | Done |
+| Integration tests (`tests/`, real PostgreSQL) | Planned |
+| `sqlc.yaml` | Planned (repositories handwritten for now) |
 
 See `docs/PROJECT_DESIGN.md` for the authoritative spec.
   
@@ -34,9 +38,9 @@ See `docs/PROJECT_DESIGN.md` for the authoritative spec.
 | Database Driver | `jackc/pgx/v5` | Implemented |
 | Configuration | `caarlos0/env/v11` | Implemented |
 | Migrations | `atlasgo/atlas` | Implemented |
-| Auth | `golang-jwt/jwt/v5` + bcrypt | Planned |
-| Validation | `go-playground/validator/v10` | Planned |
-| Testing | `stretchr/testify` | Planned |
+| Auth | `golang-jwt/jwt/v5` + `golang.org/x/crypto/bcrypt` | Implemented |
+| Validation | `go-playground/validator/v10` | Implemented |
+| Testing | stdlib `testing` (table-driven) | Implemented |
 | Linting | `golangci-lint` | Implemented |
 | Hot Reload | `air` | Implemented |
 
@@ -84,12 +88,12 @@ API will be available at `http://localhost:8080`
 ├── internal/
 │   ├── config/               # Env-based config struct
 │   ├── database/             # pgx pool
-│   ├── routers/              # chi route groups
-│   ├── middleware/           # JWT auth, RBAC, logging (planned)
-│   ├── models/               # Domain structs (planned)
-│   ├── repositories/         # Data access layer (planned)
-│   ├── schemas/              # Request/response DTOs (planned)
-│   └── services/             # Business logic (planned)
+│   ├── routers/              # chi route groups (auth, helpers)
+│   ├── middleware/           # JWT auth, RBAC, logging, CORS, recovery
+│   ├── models/               # Domain structs mirroring the DB schema
+│   ├── repositories/         # Data access layer (pgx SQL, Querier interface)
+│   ├── schemas/              # Request/response DTOs with validator tags
+│   └── services/             # Business logic + transactions (auth)
 ├── migrations/               # Atlas migration files
 ├── atlas.hcl                 # Atlas config
 ├── docker-compose.yml        # Local dev environment
@@ -125,16 +129,27 @@ go mod tidy && git diff --exit-code
 
 ## API Endpoints
 
-See `docs/PROJECT_DESIGN.md` for the full API specification.
+### Implemented
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/v1/auth/register` | Create user (bcrypt hash, default `VIEWER` role), returns access + refresh tokens. Duplicate username/email → `409` |
+| `POST` | `/api/v1/auth/login` | Verify credentials by username or email, returns token pair. Any failure → `401` |
+| `GET` | `/health` | DB connectivity probe (load balancer) |
+
+Auth flow: access token is a 15m HS256 JWT (`Authorization: Bearer <token>`); the refresh token is 7d, stored as a SHA-256 hash in `refresh_tokens`.
+
+### Planned
 
 | Domain | Base Path |
 |---|---|
-| Auth | `/api/v1/auth` |
 | Products | `/api/v1/products` |
 | Batches | `/api/v1/batches` |
 | Inventory | `/api/v1/inventory` |
 | Production | `/api/v1/production` |
-| Health | `/health` |
+| Auth (refresh / me / logout) | `/api/v1/auth` |
+
+See `docs/PROJECT_DESIGN.md` for the full API specification.
 
 ## Deployment
 
