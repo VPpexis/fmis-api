@@ -15,6 +15,7 @@ import (
 	"fmis-api/internal/config"
 	"fmis-api/internal/database"
 	"fmis-api/internal/routers"
+	"fmis-api/internal/services"
 )
 
 func main() {
@@ -34,7 +35,12 @@ func main() {
 	}
 	defer pool.Close()
 
-	handler := routers.New(pool, cfg.JWTSecret, logger)
+	handler := routers.New(
+		services.NewAuthService(pool, cfg.JWTSecret, cfg.AccessTokenTTL.Duration, cfg.RefreshTokenTTL.Duration),
+		pool,
+		cfg.JWTSecret,
+		logger,
+	)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
