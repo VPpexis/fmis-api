@@ -29,6 +29,3 @@ go.work
 # Docker
 .docker/
 
-# Atlas auto-generated checksum (keep migration/*.sql tracked)
-migrations/atlas.sum
-
