@@ -11,6 +11,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"fmis-api/internal/middleware"
+	"fmis-api/internal/models"
 	"fmis-api/internal/services"
 )
 
@@ -20,7 +21,12 @@ type Pinger interface {
 }
 
 // New builds the chi router with base middleware and routes.
-func New(auth *services.AuthService, pinger Pinger, jwtSecret string, logger *slog.Logger) http.Handler {
+func New(auth *services.AuthService,
+	batches *services.BatchService,
+	pinger Pinger,
+	jwtSecret string,
+	logger *slog.Logger,
+) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.CORS("*"))
@@ -41,12 +47,22 @@ func New(auth *services.AuthService, pinger Pinger, jwtSecret string, logger *sl
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	r.Group(func(r chi.Router) {
-		r.Use(middleware.Auth(jwtSecret))
-	})
-
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		NewAuthRouter(auth, logger).Routes(r)
+	})
+
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Auth(jwtSecret))
+
+		br := NewBatchRouter(batches, logger)
+		r.Route("/api/v1/batches", func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin, models.UserRoleTypeOperator))
+				r.Post("/", br.receive)
+				r.Patch("/{batch_id}/quarantine", br.quarantine)
+			})
+			r.Get("/product/{product_id}", br.listByProduct)
+		})
 	})
 
 	return r
