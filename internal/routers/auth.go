@@ -67,6 +67,14 @@ func writeError(w http.ResponseWriter, err error) {
 		writeErrorJSON(w, http.StatusConflict, err.Error())
 	case errors.Is(err, services.ErrInvalidCredentials):
 		writeErrorJSON(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, services.ErrProductNotFound), errors.Is(err, services.ErrBatchNotFound):
+		writeErrorJSON(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, services.ErrExpirationRequired):
+		writeErrorJSON(w, http.StatusUnprocessableEntity, err.Error())
+	case errors.Is(err, services.ErrInvalidBatchState):
+		writeErrorJSON(w, http.StatusConflict, err.Error())
+	case errors.Is(err, services.ErrInvalidRequest):
+		writeErrorJSON(w, http.StatusBadRequest, err.Error())
 	default:
 		slog.Error("unhandled service error", "error", err)
 		writeErrorJSON(w, http.StatusInternalServerError, "internal server error")

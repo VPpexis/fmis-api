@@ -36,6 +36,12 @@ jobs:
               uses: actions/setup-go@v6
               with:
                 go-version: 1.26
+            
+            - name: Setup Atlas
+              uses: ariga/setup-atlas@v0
+
+            - name: Apply migrations
+              run: atlas migrate apply --url "postgres://test:test@localhost:5432/fmis_test?sslmode=disable" --dir file://migrations
 
             - name: Run tests
               run: go test ./... -v -race

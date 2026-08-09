@@ -70,3 +70,9 @@ func RoleFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ctxKeyRole).(string)
 	return v
 }
+
+// WithUserID returns a context carrying the given user ID,
+// mirroring what Auth injects into request contexts.
+func WithUserID(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, ctxKeyUserID, userID)
+}
