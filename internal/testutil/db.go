@@ -3,40 +3,150 @@ package testutil
 
 import (
 	"context"
-	"fmis-api/internal/models"
-	"fmis-api/internal/repositories"
+	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
 	"testing"
 	"time"
 
+	"fmis-api/internal/models"
+	"fmis-api/internal/repositories"
+
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Pool connects to the integration test databse, skipping the test when
-// PostgreSQL is unreachable so DB-less environments staygreen.
+// defaultURL points at the local dev database. CI overrides it via DATABASE_URL.
+//
+//nolint:gosec // localhost-only dev DB; credentials already public in atlas.hcl, CI overrides via DATABASE_URL
+const defaultURL = "postgres://fmis:fmis_dev@localhost:5432/fmis_test?sslmode=disable"
+
+// databaseURL returns the integration test database URL.
+func databaseURL() string {
+	if url := os.Getenv("DATABASE_URL"); url != "" {
+		return url
+	}
+	return defaultURL
+}
+
+// repoRoot resolves the repository root from this file's path so that tests
+// find migrations regardless of the working directory (go test runs each
+// package binary from its own directory).
+func repoRoot() string {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return ""
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
+// createSchema creates a fresh, uniquely named schema in the shared database
+// and applies every migration inside it. Because the schema (and therefore
+// every table) belongs exclusively to the calling test, concurrently running
+// test binaries can never observe or truncate one another's rows.
+func createSchema(ctx context.Context, url string) (string, error) {
+	schema := "it_" + uuid.NewString()[:8]
+	admin, connErr := pgx.Connect(ctx, url)
+	if connErr != nil {
+		return "", connErr
+	}
+	defer func() { _ = admin.Close(ctx) }()
+
+	if _, err := admin.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
+		return "", fmt.Errorf("create schema %s: %w", schema, err)
+	}
+	if err := applyMigrations(ctx, admin, schema); err != nil {
+		_, _ = admin.Exec(ctx, `DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`)
+		return "", err
+	}
+	return schema, nil
+}
+
+// applyMigrations executes every SQL migration inside the given schema.
+func applyMigrations(ctx context.Context, admin *pgx.Conn, schema string) error {
+	files, err := filepath.Glob(filepath.Join(repoRoot(), "migrations", "*.sql"))
+	if err != nil {
+		return fmt.Errorf("find migrations: %w", err)
+	}
+	sort.Strings(files)
+	for _, file := range files {
+		//nolint:gosec // file comes from the repository's own migrations dir
+		content, err := os.ReadFile(file)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", file, err)
+		}
+		// Atlas generates migrations for the public schema; redirect every
+		// schema reference (e.g. "public"."products" or ::public.transaction_type)
+		// into this test's schema. Word boundaries leave other identifiers
+		// containing "public" (like is_public) untouched.
+		sql := regexp.MustCompile(`\bpublic\b`).ReplaceAllString(string(content), schema)
+		if _, err := admin.Exec(ctx, sql); err != nil {
+			return fmt.Errorf("apply migration %s: %w", file, err)
+		}
+	}
+	return nil
+}
+
+// Pool connects to the integration test database, skipping the test when
+// PostgreSQL is unreachable so DB-less environments stay green.
+//
+// Each call to Pool creates a fresh schema owned by the calling test: all
+// tables created through the returned pool live in that schema, and the schema
+// is dropped (with its rows) when the test finishes. Concurrent package
+// binaries get their own schemas, so no test can truncate or read data that
+// another package created.
 func Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		//nolint:gosec // localhost-only dev DB; credentials already public in atlas.hcl, CI overrides via DATABASE_URL
-		url = "postgres://fmis:fmis_dev@localhost:5432/fmis_test?sslmode=disable"
+	url := databaseURL()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	schema, err := createSchema(ctx, url)
+	if err != nil {
+		t.Skipf("integration test skipped: no PostgreSQL: %v", err)
 	}
-	pool, err := pgxpool.New(context.Background(), url)
+
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Skipf("integration test skipped: bad DATABASE_URL: %v", err)
+	}
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, execErr := conn.Exec(ctx, `SET search_path TO "`+schema+`"`)
+		return execErr
+	}
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		t.Skipf("integration test skipped: no PostgreSQL: %v", err)
 	}
 	t.Cleanup(pool.Close)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Drop the schema over a fresh connection so cleanup still works when the
+	// test closed pool itself.
+	t.Cleanup(func() {
+		dropCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		admin, connErr := pgx.Connect(dropCtx, url)
+		if connErr != nil {
+			return
+		}
+		defer func() { _ = admin.Close(dropCtx) }()
+		_, _ = admin.Exec(dropCtx, `DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`)
+	})
+
 	if err := pool.Ping(ctx); err != nil {
 		t.Skipf("integration test skipped no PostgreSQL: %v", err)
 	}
 	return pool
 }
 
-// ResetDB empties every domain table so each test starts from a clean slate.
+// ResetDB empties every domain table in the caller's own schema so each test
+// starts from a clean slate. The truncation is scoped to the schema created
+// for the calling test and can never touch another package's rows.
 func ResetDB(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(), `
