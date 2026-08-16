@@ -113,24 +113,38 @@ func (s *BatchService) ListActiveByProduct(ctx context.Context, productIDStr str
 	return batches, nil
 }
 
-// Quarantine moves a batch to QUARANTINED, only from ACTIVE.
+// Quarantine moves a batch to QUARANTINED, only from ACTIVE. The row is locked
+// with SELECT ... FOR UPDATE so concurrent requests cannot both pass the state
+// guard: only the first transition from ACTIVE succeeds, the rest get
+// ErrInvalidBatchState.
 func (s *BatchService) Quarantine(ctx context.Context, batchIDStr string) (models.InventoryBatch, error) {
 	batchID, err := uuid.Parse(batchIDStr)
 	if err != nil {
 		return models.InventoryBatch{}, ErrInvalidRequest
 	}
 
-	batch, err := s.batches.GetBatchByID(ctx, s.pool, batchID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return models.InventoryBatch{}, ErrBatchNotFound
+	var batch models.InventoryBatch
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		batch, err = s.batches.GetBatchByIDForUpdate(ctx, tx, batchID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrBatchNotFound
+			}
+			return fmt.Errorf("get batch: %w", err)
 		}
-		return models.InventoryBatch{}, fmt.Errorf("get batch: %w", err)
-	}
 
-	if batch.Status != models.BatchStatusTypeActive {
-		return models.InventoryBatch{}, ErrInvalidBatchState
-	}
+		if batch.Status != models.BatchStatusTypeActive {
+			return ErrInvalidBatchState
+		}
 
-	return s.batches.SetBatchStatus(ctx, s.pool, batchID, models.BatchStatusTypeQuarantined)
+		batch, err = s.batches.SetBatchStatus(ctx, tx, batchID, models.BatchStatusTypeQuarantined)
+		if err != nil {
+			return fmt.Errorf("set batch status: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return models.InventoryBatch{}, err
+	}
+	return batch, nil
 }
