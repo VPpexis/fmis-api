@@ -103,7 +103,7 @@ func (s *BatchService) ListActiveByProduct(ctx context.Context, productIDStr str
 		if errors.Is(getErr, pgx.ErrNoRows) {
 			return nil, ErrProductNotFound
 		}
-		return nil, fmt.Errorf("get product: %w", err)
+		return nil, fmt.Errorf("get product: %w", getErr)
 	}
 
 	batches, err := s.batches.GetActivateBatchesByProduct(ctx, s.pool, productID)
