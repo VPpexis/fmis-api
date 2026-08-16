@@ -141,6 +141,12 @@ table "inventory_batches" {
         ref_columns = [table.products.column.id]
         on_delete = RESTRICT
     }
+    check "inventory_batches_quantity_initial_positive" {
+        expr = "quantity_initial > 0"
+    }
+    check "inventory_batches_quantity_current_non_negative" {
+        expr = "quantity_current >= 0"
+    }
 }
 
 table "stock_transactions" {
@@ -207,6 +213,9 @@ table "stock_transactions" {
         columns = [column.performed_by]
         ref_columns = [table.users.column.id]
         on_delete = RESTRICT
+    }
+    check "stock_transactions_incoming_quantity_positive" {
+        expr = "quantity_change > 0 OR transaction_type <> 'INCOMING'"
     }
 }
 

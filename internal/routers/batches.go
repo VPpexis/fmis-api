@@ -20,7 +20,7 @@ type BatchRouter struct {
 
 // NewBatchRouter constructs the batch HTTP handlers.
 func NewBatchRouter(svc *services.BatchService, logger *slog.Logger) *BatchRouter {
-	return &BatchRouter{svc: svc, validate: validator.New(), logger: logger}
+	return &BatchRouter{svc: svc, validate: schemas.NewValidator(), logger: logger}
 }
 
 // receive handles POST /api/v1/batches

@@ -8,6 +8,7 @@ import (
 	"fmis-api/internal/models"
 	"fmis-api/internal/schemas"
 	"fmis-api/internal/testutil"
+	"strings"
 	"testing"
 	"time"
 
@@ -240,5 +241,58 @@ func TestQuarantine(t *testing.T) {
 	// Step 3: unknown batch -> not found.
 	if _, err := svc.Quarantine(ctx, uuid.New().String()); !errors.Is(err, ErrBatchNotFound) {
 		t.Errorf("unknown batch error = %v, want ErrBatchNotFound", err)
+	}
+}
+
+// TestDBConstraintsRejectInvalidQuantities checks that the DB rejects invalid quantities.
+func TestDBConstraintsRejectInvalidQuantities(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	product := testutil.CreateProduct(ctx, t, pool, models.ProductTypeRawMaterial)
+
+	// Seed one legit batch — its ID feeds the stock_transactions cases.
+	var batchID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO inventory_batches (product_id, batch_number, quantity_initial, quantity_current, status)
+		VALUES ($1, 'LOT-OK', 100, 100, 'ACTIVE')
+		RETURNING id`, product.ID).Scan(&batchID)
+	if err != nil {
+		t.Fatalf("seed batch: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		sql  string
+		args []any
+	}{
+		{"zero initial",
+			`INSERT INTO inventory_batches (product_id, batch_number, quantity_initial, quantity_current, status) VALUES ($1, 'LOT-Z', 0, 0, 'ACTIVE')`,
+			[]any{product.ID}},
+		{"negative current",
+			`INSERT INTO inventory_batches (product_id, batch_number, quantity_initial, quantity_current, status) VALUES ($1, 'LOT-N', 10, -1, 'ACTIVE')`,
+			[]any{product.ID}},
+		{"negative incoming",
+			`INSERT INTO stock_transactions (batch_id, quantity_change, transaction_type, performed_by) VALUES ($1, -5, 'INCOMING', $2)`,
+			[]any{batchID, user.ID}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, tt.sql, tt.args...)
+			if err == nil {
+				t.Fatal("insert succeeded, want check constraint violation")
+			}
+			if !strings.Contains(err.Error(), "violates check constraint") {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+
+	// Negative quantity with OUTGOING must still be allowed (the OR logic).
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO stock_transactions (batch_id, quantity_change, transaction_type, performed_by) VALUES ($1, -5, 'OUTGOING', $2)`,
+		batchID, user.ID); err != nil {
+		t.Errorf("OUTGOING negative insert failed: %v", err)
 	}
 }
