@@ -1,3 +1,4 @@
-h1:LBpW74mdaoo5UhsAL/zW8JBvdYXTn2YCIGZu/P5yTMM=
+h1:wnTABn0Dh7YeW9fNAgH8rxf8pKk/gDY62SdEECFCxbE=
 20260802033509_create_initial_schema.sql h1:pOxhOETPC7b2XI9KPXcxph966qheL8ODaSkJAWoNhMs=
 20260815044923_add_quantity_checks.sql h1:3ct0jmpk3/p/qyDWHulBwhRDJ2P/bUKztqVRn7ap4Gw=
+20260816073135_add_products_deleted_at.sql h1:FEcysXjSWAqE22rjkibG6dflJBYMmc5DACfjzGrZd5A=
