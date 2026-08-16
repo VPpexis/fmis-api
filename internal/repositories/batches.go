@@ -49,6 +49,18 @@ func (r *BatchRepository) GetBatchByID(ctx context.Context, q Querier, id uuid.U
 	return scanBatch(row)
 }
 
+// GetBatchByIDForUpdate fetches a batch by its primary key and locks the row
+// until the surrounding transaction commits, serializing concurrent transitions.
+func (r *BatchRepository) GetBatchByIDForUpdate(ctx context.Context, q Querier, id uuid.UUID) (models.InventoryBatch, error) {
+	row := q.QueryRow(ctx, `
+		SELECT id, product_id, batch_number, quantity_initial, quantity_current, status, expiration_date, created_at, updated_at
+		FROM inventory_batches
+		WHERE id = $1
+		FOR UPDATE`,
+		id)
+	return scanBatch(row)
+}
+
 // GetActivateBatchesByProduct lists ACTIVE batches for a product in FEFO order:
 func (r *BatchRepository) GetActivateBatchesByProduct(ctx context.Context, q Querier, productID uuid.UUID) ([]models.InventoryBatch, error) {
 	rows, err := q.Query(ctx, `

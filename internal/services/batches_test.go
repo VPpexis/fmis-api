@@ -264,6 +264,58 @@ func TestQuarantine(t *testing.T) {
 	}
 }
 
+// TestQuarantineConcurrent is a regression test for issue #31: two simultaneous
+// quarantine requests must not both succeed. The FOR UPDATE row lock serializes
+// them, so exactly one transitions ACTIVE -> QUARANTINED and the other fails.
+func TestQuarantineConcurrent(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	product := testutil.CreateProduct(ctx, t, pool, models.ProductTypePackaging)
+	svc := NewBatchService(pool)
+
+	exp := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	batch, err := svc.Receive(userContext(&user), schemas.CreateBatchRequest{
+		ProductID:      product.ID.String(),
+		BatchNumber:    "LOT-RACE",
+		Quantity:       "9.0000",
+		ExpirationDate: &exp,
+	})
+	if err != nil {
+		t.Fatalf("Receive: %v", err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := svc.Quarantine(ctx, batch.ID.String())
+			results <- err
+		}()
+	}
+	close(start)
+
+	successes, conflicts := 0, 0
+	for range 2 {
+		switch err := <-results; {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrInvalidBatchState):
+			conflicts++
+		default:
+			t.Errorf("Quarantine error = %v, want nil or ErrInvalidBatchState", err)
+		}
+	}
+	if successes != 1 {
+		t.Errorf("successful quarantines = %d, want exactly 1", successes)
+	}
+	if conflicts != 1 {
+		t.Errorf("conflicts = %d, want exactly 1", conflicts)
+	}
+}
+
 // TestDBConstraintsRejectInvalidQuantities checks that the DB rejects invalid quantities.
 func TestDBConstraintsRejectInvalidQuantities(t *testing.T) {
 	pool := testutil.Pool(t)
