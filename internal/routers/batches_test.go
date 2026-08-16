@@ -155,3 +155,100 @@ func TestListBatchesHTTP(t *testing.T) {
 		t.Errorf("FEFO order voilated: got %+v, want [%s, %s]", listed, earlyID, lateID)
 	}
 }
+
+// TestReceiveRejectsInvalidQuantities tests that the receive endpoint rejects invalid quantities.
+func TestReceiveRejectsInvalidQuantities(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	product := testutil.CreateProduct(ctx, t, pool, models.ProductTypeRawMaterial)
+	router := newTestRouter(t, pool)
+
+	tests := []struct {
+		name     string
+		quantity string
+	}{
+		{"zero", "0"},
+		{"negative", "-5"},
+		{"five decimals", "1.12345"},
+		{"over precision", "1000000"},
+		{"not a number", "abc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"product_id": %q, "batch_number": "LOT-1", "quantity": %q, "expiration_date": "2028-01-01T00:00:00Z"}`, product.ID, tt.quantity)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/batches/", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("receive with quantity %q = %d, want 400; body: %s", tt.quantity, rec.Code, rec.Body.String())
+			}
+
+			var batches, txns int
+			if err := pool.QueryRow(ctx, "SELECT count(*) FROM inventory_batches").Scan(&batches); err != nil {
+				t.Fatalf("count batches: %v", err)
+			}
+			if err := pool.QueryRow(ctx, "SELECT count(*) FROM stock_transactions").Scan(&txns); err != nil {
+				t.Fatalf("count transactions: %v", err)
+			}
+			if batches != 0 {
+				t.Errorf("batch created despite invalid quantity %q", tt.quantity)
+			}
+			if txns != 0 {
+				t.Errorf("stock transaction created despite invalid quantity %q", tt.quantity)
+			}
+		})
+	}
+}
+
+// TestReceiveAcceptsValidQuantities tests that valid quantities are accepted.
+func TestReceiveAcceptsValidQuantities(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	product := testutil.CreateProduct(ctx, t, pool, models.ProductTypeRawMaterial)
+	router := newTestRouter(t, pool)
+
+	tests := []struct {
+		name        string
+		batchNumber string
+		quantity    string
+		want        string
+	}{
+		{"valid integer", "LOT-INT", "1", "1.0000"},
+		{"valid decimal", "LOT-DEC", "0.0001", "0.0001"},
+		{"valid maximum", "LOT-MAX", "999999.9999", "999999.9999"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"product_id": %q, "batch_number": %q, "quantity": %q, "expiration_date": "2028-01-01T00:00:00Z"}`, product.ID, tt.batchNumber, tt.quantity)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/batches/", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("receive with quantity %q = %d, want 201; body: %s", tt.quantity, rec.Code, rec.Body.String())
+			}
+
+			var initial, current, change string
+			err := pool.QueryRow(ctx, `
+				SELECT b.quantity_initial::text, b.quantity_current::text, t.quantity_change::text
+				FROM inventory_batches b
+				JOIN stock_transactions t ON t.batch_id = b.id
+				WHERE b.batch_number = $1`, tt.batchNumber).Scan(&initial, &current, &change)
+			if err != nil {
+				t.Fatalf("query batch: %v", err)
+			}
+			if initial != tt.want || current != tt.want || change != tt.want {
+				t.Errorf("quantity %q stored as initial=%q current=%q, change=%q, want %q", tt.quantity, initial, current, change, tt.want)
+			}
+		})
+	}
+}
