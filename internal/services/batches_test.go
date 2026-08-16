@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/puddle/v2"
 )
 
 // userContext wraps ctx with the user's ID, as Auth would for a real request.
@@ -201,6 +202,25 @@ func TestListActiveByProductFEFO(t *testing.T) {
 	}
 	if batches[2].ExpirationDate.Valid {
 		t.Error("Third batch must have NULL expiration (NULL LAST)")
+	}
+}
+
+// TestListActiveByProductPreservesProductLookupError is a regression test for
+// issue #30: non-ErrNoRows product lookup errors must preserve their cause.
+func TestListActiveByProductPreservesProductLookupError(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	svc := NewBatchService(pool)
+
+	pool.Close()
+
+	_, err := svc.ListActiveByProduct(ctx, uuid.New().String())
+	if err == nil {
+		t.Fatal("ListActiveByProduct() error = nil, want wrapped database error")
+	}
+	if !errors.Is(err, puddle.ErrClosedPool) {
+		t.Errorf("ListActiveByProduct() error = %v, want wrapped %v", err, puddle.ErrClosedPool)
 	}
 }
 
