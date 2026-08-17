@@ -23,6 +23,7 @@ type Pinger interface {
 // New builds the chi router with base middleware and routes.
 func New(auth *services.AuthService,
 	batches *services.BatchService,
+	products *services.ProductService,
 	pinger Pinger,
 	jwtSecret string,
 	logger *slog.Logger,
@@ -62,6 +63,20 @@ func New(auth *services.AuthService,
 				r.Patch("/{batch_id}/quarantine", br.quarantine)
 			})
 			r.Get("/product/{product_id}", br.listByProduct)
+		})
+		pr := NewProductRouter(products, logger)
+		r.Route("/api/v1/products", func(r chi.Router) {
+			r.Get("/", pr.list)
+			r.Get("/{product_id}", pr.getByID)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin, models.UserRoleTypeOperator))
+				r.Post("/", pr.create)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin))
+				r.Patch("/{product_id}", pr.update)
+				r.Delete("/{product_id}", pr.delete)
+			})
 		})
 	})
 

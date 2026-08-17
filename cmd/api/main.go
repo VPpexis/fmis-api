@@ -38,6 +38,7 @@ func main() {
 	handler := routers.New(
 		services.NewAuthService(pool, cfg.JWTSecret, cfg.AccessTokenTTL.Duration, cfg.RefreshTokenTTL.Duration),
 		services.NewBatchService(pool),
+		services.NewProductService(pool),
 		pool,
 		cfg.JWTSecret,
 		logger,

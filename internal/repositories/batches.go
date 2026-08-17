@@ -18,8 +18,8 @@ type CreateBatchParams struct {
 	ExpirationDate *time.Time
 }
 
-// CreateStockTransacitonParams caries the values needed to insert a stock movement row.
-type CreateStockTransacitonParams struct {
+// CreateStockTransactionParams caries the values needed to insert a stock movement row.
+type CreateStockTransactionParams struct {
 	BatchID        uuid.UUID
 	QuantityChange string
 	PerformedBy    uuid.UUID
@@ -86,7 +86,7 @@ func (r *BatchRepository) GetActivateBatchesByProduct(ctx context.Context, q Que
 }
 
 // CreateStockTransaction insert an INCOMING stock movement audit row.
-func (r *BatchRepository) CreateStockTransaction(ctx context.Context, q Querier, p CreateStockTransacitonParams) (models.StockTransaction, error) {
+func (r *BatchRepository) CreateStockTransaction(ctx context.Context, q Querier, p CreateStockTransactionParams) (models.StockTransaction, error) {
 	row := q.QueryRow(ctx, `
 		INSERT INTO stock_transactions (batch_id, quantity_change, transaction_type, performed_by, reference_note)
 		VALUES ($1, $2, 'INCOMING', $3, $4)
@@ -103,6 +103,20 @@ func (r *BatchRepository) SetBatchStatus(ctx context.Context, q Querier, batchID
 		RETURNING id, product_id, batch_number, quantity_initial, quantity_current, status, expiration_date, created_at, updated_at`,
 		batchID, status)
 	return scanBatch(row)
+}
+
+// CountActivateBatches counts the number of active batches for a product.
+func (r *BatchRepository) CountActivateBatches(ctx context.Context, q Querier, id uuid.UUID) (int, error) {
+	var count int
+	err := q.QueryRow(ctx, `
+		SELECT count(*) FROM inventory_batches
+		WHERE product_id = $1 AND status = 'ACTIVE'`,
+		id,
+	).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 // scanStockTransaction maps one stock_transaction row into a models.
