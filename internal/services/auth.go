@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
@@ -22,8 +23,9 @@ import (
 
 // Sentinel errors the router maps to HTTP status codes.
 var (
-	ErrDuplicate          = errors.New("username or email already exists")
-	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrDuplicate           = errors.New("username or email already exists")
+	ErrInvalidCredentials  = errors.New("invalid credentials")
+	ErrInvalidRefreshToken = errors.New("invalid refresh token")
 )
 
 // AuthService issues tokens and manages user credentials.
@@ -126,6 +128,90 @@ func (s *AuthService) Login(ctx context.Context, req schemas.LoginRequest) (sche
 	return tokenResponse(access, refreshRaw, s.accessTTL), nil
 }
 
+// Refresh rotates a refresh token and returns a new access token pair.
+func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (schemas.TokenResponse, error) {
+	hash := hashToken(refreshToken)
+	token, err := s.refresh.FindByHash(ctx, s.pool, hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return schemas.TokenResponse{}, ErrInvalidRefreshToken
+	}
+	if err != nil {
+		return schemas.TokenResponse{}, fmt.Errorf("find refresh token: %w", err)
+	}
+	if token.Revoked {
+		return schemas.TokenResponse{}, ErrInvalidRefreshToken
+	}
+	if token.ExpiresAt.Before(time.Now()) {
+		return schemas.TokenResponse{}, ErrInvalidRefreshToken
+	}
+
+	user, err := s.users.GetUserByID(ctx, s.pool, token.UserID)
+	if err != nil {
+		return schemas.TokenResponse{}, fmt.Errorf("get user: %w", err)
+	}
+	if !user.IsActive {
+		return schemas.TokenResponse{}, ErrInvalidRefreshToken
+	}
+
+	refreshRaw, refreshHash, err := newRefreshToken()
+	if err != nil {
+		return schemas.TokenResponse{}, fmt.Errorf("generate refresh token: %w", err)
+	}
+
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if getErr := s.refresh.Revoke(ctx, tx, hash); getErr != nil {
+			return getErr
+		}
+		_, getErr := s.refresh.CreateRefreshToken(ctx, tx, repositories.CreateRefreshTokenParams{
+			UserID:    user.ID,
+			TokenHash: refreshHash,
+			ExpiresAt: time.Now().Add(s.refreshTTL),
+		})
+		return getErr
+	})
+	if err != nil {
+		return schemas.TokenResponse{}, fmt.Errorf("rotate refresh token: %w", err)
+	}
+	access, err := s.issueAccessToken(&user)
+	if err != nil {
+		return schemas.TokenResponse{}, fmt.Errorf("issue access token: %w", err)
+	}
+	return tokenResponse(access, refreshRaw, s.accessTTL), nil
+}
+
+// Logout revokes the given refresh token.
+func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
+	hash := hashToken(refreshToken)
+	err := s.refresh.Revoke(ctx, s.pool, hash)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("revoke refresh token: %w", err)
+	}
+	return nil
+}
+
+// Me returns the current user.
+func (s *AuthService) Me(ctx context.Context, userID string) (schemas.MeResponse, error) {
+	id, err := uuid.Parse(userID)
+	if err != nil {
+		return schemas.MeResponse{}, ErrInvalidCredentials
+	}
+
+	user, err := s.users.GetUserByID(ctx, s.pool, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return schemas.MeResponse{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return schemas.MeResponse{}, fmt.Errorf("get user: %w", err)
+	}
+
+	return schemas.MeResponse{
+		ID:       user.ID.String(),
+		Username: user.Username,
+		Email:    user.Email,
+		Role:     string(user.Role),
+	}, nil
+}
+
 // issueAccessToken signs a 15-minute HS256 JWT with the user's identity.
 func (s *AuthService) issueAccessToken(user *models.User) (string, error) {
 	claims := middleware.Claims{
@@ -147,10 +233,16 @@ func newRefreshToken() (raw, hash string, err error) {
 		return "", "", fmt.Errorf("generate refresh token: %w", err)
 	}
 	raw = hex.EncodeToString(buf)
-	sum := sha256.Sum256([]byte(raw))
-	return raw, hex.EncodeToString(sum[:]), nil
+	return raw, hashToken(raw), nil
 }
 
+// hashToken
+func hashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// verifyPassword compares a bcrypt hash with a plain
 func verifyPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }

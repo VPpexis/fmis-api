@@ -15,6 +15,24 @@ type LoginRequest struct {
 	Password   string `json:"password" validate:"required"`
 }
 
+// RefreshRequest is the payload for POST /api/v1/auth/refresh
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
+// LogoutRequest is the payload for POST /api/v1/auth/logout
+type LogoutRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}
+
+// MeResponse is returned by GET /api/v1/auth/me
+type MeResponse struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+}
+
 // TokenResponse is returned by register and login.
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
