@@ -49,7 +49,12 @@ func New(auth *services.AuthService,
 	})
 
 	r.Route("/api/v1/auth", func(r chi.Router) {
-		NewAuthRouter(auth, logger).Routes(r)
+		ar := NewAuthRouter(auth, logger)
+		ar.Routes(r)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Auth(jwtSecret))
+			r.Get("/me", ar.me)
+		})
 	})
 
 	r.Group(func(r chi.Router) {

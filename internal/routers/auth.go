@@ -3,6 +3,7 @@ package routers
 
 import (
 	"errors"
+	"fmis-api/internal/middleware"
 	"fmis-api/internal/schemas"
 	"fmis-api/internal/services"
 	"log/slog"
@@ -28,6 +29,45 @@ func NewAuthRouter(svc *services.AuthService, logger *slog.Logger) *AuthRouter {
 func (a *AuthRouter) Routes(r chi.Router) {
 	r.Post("/register", a.register)
 	r.Post("/login", a.login)
+	r.Post("/refresh", a.refresh)
+	r.Post("/logout", a.logout)
+}
+
+// refresh handles POST /api/v1/auth/refresh
+func (a *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
+	var req schemas.RefreshRequest
+	if err := decodeAndValidate(a.validate, w, r, &req); err != nil {
+		return
+	}
+	resp, err := a.svc.Refresh(r.Context(), req.RefreshToken)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// logout handles POST /api/v1/auth/logout
+func (a *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
+	var req schemas.LogoutRequest
+	if err := decodeAndValidate(a.validate, w, r, &req); err != nil {
+		return
+	}
+	if err := a.svc.Logout(r.Context(), req.RefreshToken); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// me handles GET /api/v1/auth/me
+func (a *AuthRouter) me(w http.ResponseWriter, r *http.Request) {
+	resp, err := a.svc.Me(r.Context(), middleware.UserIDFromContext(r.Context()))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // register handles POST /api/v1/auth/reg
@@ -79,6 +119,8 @@ func writeError(w http.ResponseWriter, err error) {
 		writeErrorJSON(w, http.StatusConflict, err.Error())
 	case errors.Is(err, services.ErrProductHasActiveBatches):
 		writeErrorJSON(w, http.StatusConflict, err.Error())
+	case errors.Is(err, services.ErrInvalidRefreshToken):
+		writeErrorJSON(w, http.StatusUnauthorized, err.Error())
 	default:
 		slog.Error("unhandled service error", "error", err)
 		writeErrorJSON(w, http.StatusInternalServerError, "internal server error")

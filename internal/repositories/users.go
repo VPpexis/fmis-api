@@ -43,7 +43,7 @@ func (r *UserRepository) GetUserByIdentifier(ctx context.Context, q Querier, ide
 // GetUserByID fetches a user by ID.
 func (r *UserRepository) GetUserByID(ctx context.Context, q Querier, id uuid.UUID) (models.User, error) {
 	row := q.QueryRow(ctx, `
-		SELECT username, email, password_hash, role, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, role, is_active, created_at, updated_at
 		FROM users
 		WHERE id = $1`,
 		id)
