@@ -413,6 +413,10 @@ table "refresh_tokens" {
 
     primary_key { columns = [column.id] }
     index "refresh_tokens_user_id_idx" { columns = [column.user_id] }
+    index "refresh_tokens_token_hash_idx" {
+        unique = true
+        columns = [column.token_hash]
+    }
     foreign_key "refresh_tokens_users_fk" {
         columns = [column.user_id]
         ref_columns = [table.users.column.id]
