@@ -24,6 +24,7 @@ type Pinger interface {
 func New(auth *services.AuthService,
 	batches *services.BatchService,
 	products *services.ProductService,
+	inventory *services.InventoryService,
 	pinger Pinger,
 	jwtSecret string,
 	logger *slog.Logger,
@@ -81,6 +82,13 @@ func New(auth *services.AuthService,
 				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin))
 				r.Patch("/{product_id}", pr.update)
 				r.Delete("/{product_id}", pr.delete)
+			})
+		})
+		ir := NewInventoryRouter(inventory, logger)
+		r.Route("/api/v1/inventory", func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin, models.UserRoleTypeOperator))
+				r.Post("/adjust", ir.adjust)
 			})
 		})
 	})

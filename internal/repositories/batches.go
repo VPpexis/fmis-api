@@ -18,14 +18,6 @@ type CreateBatchParams struct {
 	ExpirationDate *time.Time
 }
 
-// CreateStockTransactionParams caries the values needed to insert a stock movement row.
-type CreateStockTransactionParams struct {
-	BatchID        uuid.UUID
-	QuantityChange string
-	PerformedBy    uuid.UUID
-	RefrenceNote   *string
-}
-
 // BatchRepository reads and writes inventory_batches and stock_transactions.
 type BatchRepository struct{}
 
@@ -85,16 +77,6 @@ func (r *BatchRepository) GetActivateBatchesByProduct(ctx context.Context, q Que
 	return batches, rows.Err()
 }
 
-// CreateStockTransaction insert an INCOMING stock movement audit row.
-func (r *BatchRepository) CreateStockTransaction(ctx context.Context, q Querier, p CreateStockTransactionParams) (models.StockTransaction, error) {
-	row := q.QueryRow(ctx, `
-		INSERT INTO stock_transactions (batch_id, quantity_change, transaction_type, performed_by, reference_note)
-		VALUES ($1, $2, 'INCOMING', $3, $4)
-		RETURNING id, batch_id, production_order_id, quantity_change, transaction_type, performed_by, reference_note, created_at`,
-		p.BatchID, p.QuantityChange, p.PerformedBy, p.RefrenceNote)
-	return scanStockTransaction(row)
-}
-
 // SetBatchStatus updates the status of a batch.
 func (r *BatchRepository) SetBatchStatus(ctx context.Context, q Querier, batchID uuid.UUID, status models.BatchStatusType) (models.InventoryBatch, error) {
 	row := q.QueryRow(ctx, `
@@ -102,6 +84,16 @@ func (r *BatchRepository) SetBatchStatus(ctx context.Context, q Querier, batchID
 		WHERE id = $1
 		RETURNING id, product_id, batch_number, quantity_initial, quantity_current, status, expiration_date, created_at, updated_at`,
 		batchID, status)
+	return scanBatch(row)
+}
+
+// UpdateBatchQuantity updates the quantity of the batch.
+func (r *BatchRepository) UpdateBatchQuantity(ctx context.Context, q Querier, batchID uuid.UUID, delta string) (models.InventoryBatch, error) {
+	row := q.QueryRow(ctx, `
+		UPDATE inventory_batches SET quantity_current = quantity_current + $2, updated_at = now()
+		WHERE id = $1
+		RETURNING id, product_id, batch_number, quantity_initial, quantity_current, status, expiration_date, created_at, updated_at`,
+		batchID, delta)
 	return scanBatch(row)
 }
 
@@ -117,16 +109,6 @@ func (r *BatchRepository) CountActivateBatches(ctx context.Context, q Querier, i
 		return 0, err
 	}
 	return count, nil
-}
-
-// scanStockTransaction maps one stock_transaction row into a models.
-func scanStockTransaction(row pgx.Row) (models.StockTransaction, error) {
-	var t models.StockTransaction
-	err := row.Scan(
-		&t.ID, &t.BatchID, &t.ProductionOrderID, &t.QuantityChange, &t.TransactionType,
-		&t.PerformedBy, &t.ReferenceNote, &t.CreatedAt,
-	)
-	return t, err
 }
 
 // scanBatch maps one inventory_batches row into a models.

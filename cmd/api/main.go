@@ -39,6 +39,7 @@ func main() {
 		services.NewAuthService(pool, cfg.JWTSecret, cfg.AccessTokenTTL.Duration, cfg.RefreshTokenTTL.Duration),
 		services.NewBatchService(pool),
 		services.NewProductService(pool),
+		services.NewInventoryService(pool),
 		pool,
 		cfg.JWTSecret,
 		logger,

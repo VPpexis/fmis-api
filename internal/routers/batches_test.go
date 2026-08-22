@@ -50,6 +50,7 @@ func newTestRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 		services.NewAuthService(pool, testSecret, 15*time.Minute, 7*24*time.Hour),
 		services.NewBatchService(pool),
 		services.NewProductService(pool),
+		services.NewInventoryService(pool),
 		pool,
 		testSecret,
 		logger,

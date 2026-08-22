@@ -121,6 +121,8 @@ func writeError(w http.ResponseWriter, err error) {
 		writeErrorJSON(w, http.StatusConflict, err.Error())
 	case errors.Is(err, services.ErrInvalidRefreshToken):
 		writeErrorJSON(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, services.ErrInsufficientStock):
+		writeErrorJSON(w, http.StatusConflict, err.Error())
 	default:
 		slog.Error("unhandled service error", "error", err)
 		writeErrorJSON(w, http.StatusInternalServerError, "internal server error")
