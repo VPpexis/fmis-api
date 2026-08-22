@@ -90,6 +90,7 @@ func New(auth *services.AuthService,
 				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin, models.UserRoleTypeOperator))
 				r.Post("/adjust", ir.adjust)
 			})
+			r.Get("/transactions/", ir.listTransactions)
 		})
 	})
 

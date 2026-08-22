@@ -10,6 +10,7 @@ import (
 	"fmis-api/internal/schemas"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,74 @@ func NewInventoryService(pool *pgxpool.Pool) *InventoryService {
 		batches:           &repositories.BatchRepository{},
 		stockTransactions: &repositories.StockTransactionRepository{},
 	}
+}
+
+// List list transactions with pagination.
+func (s *InventoryService) List(ctx context.Context, batchIDStr, typeStr, fromStr, toStr, limitStr, offsetStr string) ([]models.StockTransaction, error) {
+	var batchID *uuid.UUID
+	if batchIDStr != "" {
+		parsed, err := uuid.Parse(batchIDStr)
+		if err != nil {
+			return nil, ErrInvalidRequest
+		}
+		batchID = &parsed
+	}
+
+	var transactionType *models.TransactionType
+	if typeStr != "" {
+		tt := models.TransactionType(typeStr)
+		switch tt {
+		case models.TransactionTypeIncoming, models.TransactionTypeOutgoing,
+			models.TransactionTypeUsedInProduction, models.TransactionTypeWaste,
+			models.TransactionTypeAdjustment:
+			transactionType = &tt
+		default:
+			return nil, ErrInvalidRequest
+		}
+	}
+
+	var dateFrom, dateTo *time.Time
+	if fromStr != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, fromStr)
+		if err != nil {
+			return nil, ErrInvalidRequest
+		}
+		dateFrom = &parsed
+	}
+	if toStr != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, toStr)
+		if err != nil {
+			return nil, ErrInvalidRequest
+		}
+		dateTo = &parsed
+	}
+
+	limit := 20
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	offset := 0
+	if offsetStr != "" {
+		if parsed, err := strconv.Atoi(offsetStr); err == nil && parsed > 0 {
+			offset = parsed
+		}
+	}
+
+	transactions, err := s.stockTransactions.ListStockTransaction(ctx, s.pool, repositories.ListStockTransactionParams{
+		BatchID:         batchID,
+		TransactionType: transactionType,
+		DateFrom:        dateFrom,
+		DateTo:          dateTo,
+		Limit:           limit,
+		Offset:          offset,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list transactions: %w", err)
+	}
+	return transactions, nil
 }
 
 // Adjust records a WASTE or ADJUSTMENT stock movement.

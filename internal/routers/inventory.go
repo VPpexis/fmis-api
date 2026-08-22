@@ -36,3 +36,20 @@ func (i *InventoryRouter) adjust(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, transaction)
 }
+
+// listTransactions handles GET /api/v1/inventory/transactions/
+func (i *InventoryRouter) listTransactions(w http.ResponseWriter, r *http.Request) {
+	batchID := r.URL.Query().Get("batch_id")
+	transactionType := r.URL.Query().Get("transaction_type")
+	dateFrom := r.URL.Query().Get("date_from")
+	dateTo := r.URL.Query().Get("date_to")
+	limit := r.URL.Query().Get("limit")
+	offset := r.URL.Query().Get("offset")
+
+	transactions, err := i.svc.List(r.Context(), batchID, transactionType, dateFrom, dateTo, limit, offset)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, transactions)
+}
