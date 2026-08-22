@@ -26,17 +26,19 @@ var (
 
 // BatchService owns the business logic for inventory batches.
 type BatchService struct {
-	pool     *pgxpool.Pool
-	products *repositories.ProductRepository
-	batches  *repositories.BatchRepository
+	pool             *pgxpool.Pool
+	products         *repositories.ProductRepository
+	batches          *repositories.BatchRepository
+	stockTransaction *repositories.StockTransactionRepository
 }
 
 // NewBatchService creates a new BatchService.
 func NewBatchService(pool *pgxpool.Pool) *BatchService {
 	return &BatchService{
-		pool:     pool,
-		products: &repositories.ProductRepository{},
-		batches:  &repositories.BatchRepository{},
+		pool:             pool,
+		products:         &repositories.ProductRepository{},
+		batches:          &repositories.BatchRepository{},
+		stockTransaction: &repositories.StockTransactionRepository{},
 	}
 }
 
@@ -76,10 +78,11 @@ func (s *BatchService) Receive(ctx context.Context, req schemas.CreateBatchReque
 		if err != nil {
 			return fmt.Errorf("create batch: %w", err)
 		}
-		_, err = s.batches.CreateStockTransaction(ctx, tx, repositories.CreateStockTransactionParams{
-			BatchID:        batch.ID,
-			QuantityChange: req.Quantity,
-			PerformedBy:    performedBy,
+		_, err = s.stockTransaction.CreateStockTransaction(ctx, tx, repositories.CreateStockTransactionParams{
+			BatchID:         batch.ID,
+			QuantityChange:  req.Quantity,
+			TransactionType: models.TransactionTypeIncoming,
+			PerformedBy:     performedBy,
 		})
 		if err != nil {
 			return fmt.Errorf("create stock transaction: %w", err)
