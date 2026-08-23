@@ -37,6 +37,21 @@ func (i *InventoryRouter) adjust(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, transaction)
 }
 
+// consume handles POST /api/v1/inventory/consume
+func (i *InventoryRouter) consume(w http.ResponseWriter, r *http.Request) {
+	var req schemas.ConsumeStockRequest
+	if err := decodeAndValidate(i.validate, w, r, &req); err != nil {
+		return
+	}
+
+	transactions, err := i.svc.Consume(r.Context(), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, transactions)
+}
+
 // listTransactions handles GET /api/v1/inventory/transactions/
 func (i *InventoryRouter) listTransactions(w http.ResponseWriter, r *http.Request) {
 	batchID := r.URL.Query().Get("batch_id")

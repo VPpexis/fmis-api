@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,8 +21,14 @@ import (
 // receiveBatch creates a batch through the real HTTP endpoint and returns its ID.
 func receiveBatch(t *testing.T, router http.Handler, user *models.User, product *models.Product, quantity string) string {
 	t.Helper()
-	body := fmt.Sprintf(`{"product_id": %q, "batch_number": "LOT-%s", "quantity": %q, "expiration_date": "2028-01-01T00:00:00Z"}`,
-		product.ID.String(), uuid.NewString()[:8], quantity)
+	return receiveBatchWithExpiry(t, router, user, product, quantity, "2028-01-01T00:00:00Z")
+}
+
+// receiveBatchWithExpiry is receiveBatch with a caller-chosen expiration date.
+func receiveBatchWithExpiry(t *testing.T, router http.Handler, user *models.User, product *models.Product, quantity, expiry string) string {
+	t.Helper()
+	body := fmt.Sprintf(`{"product_id": %q, "batch_number": "LOT-%s", "quantity": %q, "expiration_date": %q}`,
+		product.ID.String(), uuid.NewString()[:8], quantity, expiry)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/batches/", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
 	rec := httptest.NewRecorder()
@@ -42,6 +49,17 @@ func receiveBatch(t *testing.T, router http.Handler, user *models.User, product 
 func adjust(t *testing.T, router http.Handler, user *models.User, role, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/inventory/adjust", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), role))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// consume posts a consume request as the given role and returns the response.
+func consume(t *testing.T, router http.Handler, user *models.User, role, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/inventory/consume", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), role))
 	rec := httptest.NewRecorder()
@@ -230,6 +248,180 @@ func TestAdjustInsufficientStock(t *testing.T) {
 	}
 	if current != "10.0000" {
 		t.Errorf("quantity_current = %q after rejected adjust, want 10.0000", current)
+	}
+}
+
+// TestConsumeInsufficientStockNoPartialWrites proves that a consume request
+// larger than total active stock returns 409 and rolls back every deduction
+// made before the failure: both batch quantities stay untouched and no
+// OUTGOING audit rows are left behind.
+func TestConsumeInsufficientStockNoPartialWrites(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	product := testutil.CreateProduct(ctx, t, pool, models.ProductTypeRawMaterial)
+	router := newTestRouter(t, pool)
+
+	// 10 + 10 = 20 total stock. Asking for 25 makes the FEFO loop drain batch
+	// A, drain batch B, then fail — the case that must roll back completely.
+	batchA := receiveBatch(t, router, &user, &product, "10.0000")
+	batchB := receiveBatch(t, router, &user, &product, "10.0000")
+
+	body := fmt.Sprintf(`{"product_id": %q, "quantity": "25.0000"}`, product.ID.String())
+	if rec := consume(t, router, &user, string(models.UserRoleTypeOperator), body); rec.Code != http.StatusConflict {
+		t.Fatalf("consume over stock = %d, want 409; body: %s", rec.Code, rec.Body.String())
+	}
+
+	// Assertion 1: no partial writes — every batch still holds its original 10.
+	for _, id := range []string{batchA, batchB} {
+		var current string
+		if err := pool.QueryRow(ctx, "SELECT quantity_current::text FROM inventory_batches WHERE id = $1", id).Scan(&current); err != nil {
+			t.Fatalf("query batch: %v", err)
+		}
+		if current != "10.0000" {
+			t.Errorf("quantity_current of batch %s = %q, want 10.0000", id, current)
+		}
+	}
+
+	// Assertion 2: full rollback — only the 2 INCOMING rows from receiveBatch
+	// exist. Any OUTGOING row means the transaction leaked.
+	var txns int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM stock_transactions").Scan(&txns); err != nil {
+		t.Fatalf("count transactions: %v", err)
+	}
+	if txns != 2 {
+		t.Errorf("transaction count = %d after rejected consume, want 2 (INCOMING only)", txns)
+	}
+}
+
+// TestConsumeFollowsFEFOOrder proves consumption drains the soonest-expiring
+// batch first, across active batches, and the response lists the OUTGOING
+// transactions in that same order.
+func TestConsumeFollowsFEFOOrder(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	product := testutil.CreateProduct(ctx, t, pool, models.ProductTypeRawMaterial)
+	router := newTestRouter(t, pool)
+
+	// Three batches of the same product, expiring 2026-01-01 (oldest),
+	// 2026-06-01 (middle), 2027-01-01 (newest).
+	batchOld := receiveBatchWithExpiry(t, router, &user, &product, "10.0000", "2026-01-01T00:00:00Z")
+	batchMid := receiveBatchWithExpiry(t, router, &user, &product, "10.0000", "2026-06-01T00:00:00Z")
+	batchNew := receiveBatchWithExpiry(t, router, &user, &product, "10.0000", "2027-01-01T00:00:00Z")
+
+	// 15 units: must drain the oldest fully (10), then take 5 from the middle.
+	body := fmt.Sprintf(`{"product_id": %q, "quantity": "15.0000"}`, product.ID.String())
+	rec := consume(t, router, &user, string(models.UserRoleTypeOperator), body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("consume = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+
+	// Response lists the OUTGOING transactions in FEFO order.
+	var out []struct {
+		BatchID        string      `json:"batch_id"`
+		QuantityChange json.Number `json:"quantity_change"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode consume response: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("consume returned %d transactions, want 2", len(out))
+	}
+	if out[0].BatchID != batchOld || out[1].BatchID != batchMid {
+		t.Errorf("FEFO order = [%s, %s], want [%s (oldest), %s (middle)]", out[0].BatchID, out[1].BatchID, batchOld, batchMid)
+	}
+	if out[0].QuantityChange.String() != "-10.0000" || out[1].QuantityChange.String() != "-5.0000" {
+		t.Errorf("quantities = [%s, %s], want [-10.0000, -5.0000]", out[0].QuantityChange, out[1].QuantityChange)
+	}
+
+	// Ground truth on the shelf: oldest drained, middle half-taken, newest untouched.
+	checks := []struct {
+		id   string
+		want string
+	}{
+		{batchOld, "0.0000"},
+		{batchMid, "5.0000"},
+		{batchNew, "10.0000"},
+	}
+	for _, c := range checks {
+		var current string
+		if err := pool.QueryRow(ctx, "SELECT quantity_current::text FROM inventory_batches WHERE id = $1", c.id).Scan(&current); err != nil {
+			t.Fatalf("query batch: %v", err)
+		}
+		if current != c.want {
+			t.Errorf("quantity_current of batch %s = %q, want %q", c.id, current, c.want)
+		}
+	}
+}
+
+// TestConsumeConcurrentNoOverselling proves the FOR UPDATE row lock serializes
+// concurrent consume requests: 20 parallel requests of 1 unit each against a
+// 10-unit batch must yield exactly 10 successes and end with exactly 0 stock.
+// Without the lock, stale reads would let more than 10 requests succeed.
+func TestConsumeConcurrentNoOverselling(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	product := testutil.CreateProduct(ctx, t, pool, models.ProductTypeRawMaterial)
+	router := newTestRouter(t, pool)
+	receiveBatch(t, router, &user, &product, "10.0000")
+
+	body := fmt.Sprintf(`{"product_id": %q, "quantity": "1.0000"}`, product.ID.String())
+
+	const requests = 20
+	results := make(chan int, requests) // buffered: workers never block on the bucket
+	pool.Config().MaxConns = requests   // every worker gets its own DB connection
+
+	start := make(chan struct{}) // barrier: nobody fires until all are loaded
+	var wg sync.WaitGroup
+	for i := 0; i < requests; i++ {
+		wg.Add(1) // hire a worker
+		go func() {
+			defer wg.Done() // clock out when done
+
+			<-start // wait for the starting gun
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/inventory/consume", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			results <- rec.Code // drop the status code in the bucket
+		}()
+	}
+	close(start) // fire!
+	wg.Wait()    // wait for every worker to clock out
+	close(results)
+
+	successes := 0
+	for code := range results {
+		if code == http.StatusCreated {
+			successes++
+		}
+	}
+	if successes != 10 {
+		t.Errorf("successful consumes = %d, want exactly 10 (overselling)", successes)
+	}
+
+	// Ground truth: the shelf must be empty, not negative.
+	var current string
+	if err := pool.QueryRow(ctx, "SELECT quantity_current::text FROM inventory_batches").Scan(&current); err != nil {
+		t.Fatalf("query batch: %v", err)
+	}
+	if current != "0.0000" {
+		t.Errorf("quantity_current = %q, want 0.0000", current)
+	}
+
+	// Audit trail: exactly 1 INCOMING + 10 OUTGOING rows.
+	var outgoing int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM stock_transactions WHERE transaction_type = 'OUTGOING'").Scan(&outgoing); err != nil {
+		t.Fatalf("count outgoing transactions: %v", err)
+	}
+	if outgoing != 10 {
+		t.Errorf("OUTGOING transactions = %d, want 10", outgoing)
 	}
 }
 

@@ -77,6 +77,31 @@ func (r *BatchRepository) GetActivateBatchesByProduct(ctx context.Context, q Que
 	return batches, rows.Err()
 }
 
+// GetActiveBatchesByProductForUpdate lists ACTIVE batches for a product in FEFO order with Lock
+func (r *BatchRepository) GetActiveBatchesByProductForUpdate(ctx context.Context, q Querier, productID uuid.UUID) ([]models.InventoryBatch, error) {
+	rows, err := q.Query(ctx, `
+		SELECT id, product_id, batch_number, quantity_initial, quantity_current, status, expiration_date, created_at, updated_at
+		FROM inventory_batches
+		WHERE product_id = $1 AND status = 'ACTIVE'
+		ORDER BY expiration_date ASC NULLS LAST
+		FOR UPDATE`,
+		productID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	batches := make([]models.InventoryBatch, 0)
+	for rows.Next() {
+		b, err := scanBatch(rows)
+		if err != nil {
+			return nil, err
+		}
+		batches = append(batches, b)
+	}
+	return batches, rows.Err()
+}
+
 // SetBatchStatus updates the status of a batch.
 func (r *BatchRepository) SetBatchStatus(ctx context.Context, q Querier, batchID uuid.UUID, status models.BatchStatusType) (models.InventoryBatch, error) {
 	row := q.QueryRow(ctx, `
