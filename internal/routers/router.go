@@ -89,6 +89,7 @@ func New(auth *services.AuthService,
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin, models.UserRoleTypeOperator))
 				r.Post("/adjust", ir.adjust)
+				r.Post("/consume", ir.consume)
 			})
 			r.Get("/transactions/", ir.listTransactions)
 		})
