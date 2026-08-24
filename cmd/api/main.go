@@ -40,6 +40,7 @@ func main() {
 		services.NewBatchService(pool),
 		services.NewProductService(pool),
 		services.NewInventoryService(pool),
+		services.NewProductionOrderService(pool),
 		pool,
 		cfg.JWTSecret,
 		logger,

@@ -1,5 +1,6 @@
-h1:dKV7xyJIXwBIEhS5rDO9IJr30Jy11D/ncXk6wiujCqs=
+h1:BfpPRQsu6WF3za/DGdThGSbsqXWgXYtToEgSIP9GLao=
 20260802033509_create_initial_schema.sql h1:pOxhOETPC7b2XI9KPXcxph966qheL8ODaSkJAWoNhMs=
 20260815044923_add_quantity_checks.sql h1:3ct0jmpk3/p/qyDWHulBwhRDJ2P/bUKztqVRn7ap4Gw=
 20260816073135_add_products_deleted_at.sql h1:FEcysXjSWAqE22rjkibG6dflJBYMmc5DACfjzGrZd5A=
 20260818170650.sql h1:CMDNVs+Aa+wgbCaQjdhSAXQavpFvS3d1La4O/kASuUU=
+20260824035238_add_reserved_batch_status.sql h1:2h9wGfKWUu6REf92LF9AMVhebaB2alQtJhOdcVVgbeg=

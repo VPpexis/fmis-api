@@ -51,6 +51,7 @@ func newTestRouter(t *testing.T, pool *pgxpool.Pool) http.Handler {
 		services.NewBatchService(pool),
 		services.NewProductService(pool),
 		services.NewInventoryService(pool),
+		services.NewProductionOrderService(pool),
 		pool,
 		testSecret,
 		logger,

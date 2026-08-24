@@ -5,7 +5,7 @@ enum "product_type" {
 
 enum "batch_status" {
     schema = schema.public
-    values = ["ACTIVE", "DEPLETED", "QUARANTINED", "EXPIRED"]
+    values = ["ACTIVE", "DEPLETED", "QUARANTINED", "EXPIRED", "RESERVED"]
 }
 
 enum "transaction_type" {

@@ -107,11 +107,11 @@ func writeError(w http.ResponseWriter, err error) {
 		writeErrorJSON(w, http.StatusConflict, err.Error())
 	case errors.Is(err, services.ErrInvalidCredentials):
 		writeErrorJSON(w, http.StatusUnauthorized, err.Error())
-	case errors.Is(err, services.ErrProductNotFound), errors.Is(err, services.ErrBatchNotFound):
+	case errors.Is(err, services.ErrProductNotFound), errors.Is(err, services.ErrBatchNotFound), errors.Is(err, services.ErrProductionOrderNotFound):
 		writeErrorJSON(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, services.ErrExpirationRequired):
+	case errors.Is(err, services.ErrExpirationRequired), errors.Is(err, services.ErrInvalidProductionInput):
 		writeErrorJSON(w, http.StatusUnprocessableEntity, err.Error())
-	case errors.Is(err, services.ErrInvalidBatchState):
+	case errors.Is(err, services.ErrInvalidBatchState), errors.Is(err, services.ErrInvalidProductionOrderState):
 		writeErrorJSON(w, http.StatusConflict, err.Error())
 	case errors.Is(err, services.ErrInvalidRequest):
 		writeErrorJSON(w, http.StatusBadRequest, err.Error())
