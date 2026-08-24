@@ -24,7 +24,9 @@ A product-grade REST API for food manufacturing inventory management, built in G
 | Domain models (`internal/models`) | Done (issue #19) |
 | Auth endpoints: register + login (issue #22) | Done |
 | Repositories / schemas / services | In progress (auth domain done) |
-| Products / batches / inventory / production API | Planned |
+| Products / batches / inventory API | Done |
+| Production: create + start (issue #46) | Done |
+| Production: complete / cancel / list (issues #45, #47) | Planned |
 | Unit tests (middleware, auth service) | Done |
 | Integration tests (`tests/`, real PostgreSQL) | Planned |
 | `sqlc.yaml` | Planned (repositories handwritten for now) |

@@ -76,13 +76,32 @@ In food production, tracking packaging (labels, jars) is as critical as raw ingr
 White-label items require a "Production Order" workflow to combine the base product with packaging (stickers) to create the final sellable good.
 
 * **Receiving:** White-label items are received as an `INCOMING` batch under a `WHITE_LABEL` product. Branded sticker rolls are received as an `INCOMING` batch under a `PACKAGING` product.
-* **Production Order Creation:** A `PRODUCTION_ORDER` is created with its line items defining the target output batch (a `FINISHED_GOOD` product) and the required input batches with their consumed quantities.
-* **Execution & Consumption:** Completing the production order triggers a single atomic transaction that:
+* **Production Order Creation:** `POST /api/v1/production/` creates a `PRODUCTION_ORDER` (status `PLANNED`) with its line items defining the required input batches and consumed quantities, plus the target output batch details. A single atomic transaction:
+  1. Validates the output product exists and is a `FINISHED_GOOD` (other product types are rejected with 422).
+  2. Validates every input batch exists and belongs to a `WHITE_LABEL` or `PACKAGING` product (`RAW_MATERIAL`/`FINISHED_GOOD` inputs are rejected with 422).
+  3. Creates the `FINISHED_GOOD` output batch with status **`RESERVED`** — the batch exists but is **not sellable** until the order completes.
+  4. Inserts the `PRODUCTION_ORDER` (status `PLANNED`) referencing the output batch.
+  5. Inserts the `PRODUCTION_ORDER_LINE_ITEMS`.
+  Any failure rolls back the entire transaction, including the output batch.
+
+* **Order Start:** `POST /api/v1/production/{id}/start` transitions `PLANNED → IN_PROGRESS`. The order row is locked with `SELECT ... FOR UPDATE`, so concurrent start attempts cannot both pass the status guard (the second one is rejected with 409).
+
+* **Execution & Consumption:** Completing the production order (`POST /api/v1/production/{id}/complete`) triggers a single atomic transaction that:
   1. Acquires pessimistic locks on all input batches (`SELECT ... FOR UPDATE`).
   2. Deducts the `WHITE_LABEL` batch quantity (Transaction: `USED_IN_PRODUCTION`).
   3. Deducts the `PACKAGING` batch quantity (Transaction: `USED_IN_PRODUCTION`).
-  4. Creates/Activates the `FINISHED_GOOD` output batch with the calculated expiration date.
+  4. Activates the `FINISHED_GOOD` output batch (`RESERVED → ACTIVE`) with the calculated expiration date.
   5. Links all transactions to the production order ID for audit trail.
+  6. Sets the order status to `COMPLETED`.
+
+#### Production Order Lifecycle
+
+```
+PLANNED → IN_PROGRESS → COMPLETED
+      └──────────────→ CANCELLED (from PLANNED or IN_PROGRESS)
+```
+
+The output batch mirrors this lifecycle: it is created `RESERVED` at order creation, stays unsellable while the order is `PLANNED`/`IN_PROGRESS`, and is activated (`ACTIVE`) only on completion. `RESERVED` batches are excluded from listing and FEFO consumption — `GET /api/v1/batches/product/{id}` and `POST /api/v1/inventory/consume` only ever see `ACTIVE` batches.
 
 #### Expiration Date Rule for White-Label Assembly
 
@@ -129,7 +148,8 @@ All quantity fields use `DECIMAL(10,4)` for exact numerical precision — no flo
   |     | quantity_initial | DECIMAL(10,4) (Original qty)   |
   |     | quantity_current | DECIMAL(10,4) (Available qty)  |
   |     | status           | ENUM (ACTIVE, DEPLETED,        |
-  |     |                  |       QUARANTINED, EXPIRED)    |
+  |     |                  |       QUARANTINED, EXPIRED,    |
+  |     |                  |       RESERVED)                |
   |     | expiration_date  | TIMESTAMP (NOT NULL for        |
   |     |                  | RAW_MATERIAL, FINISHED_GOOD,   |
   |     |                  | WHITE_LABEL; NULLABLE for      |
@@ -242,8 +262,8 @@ All quantity fields use `DECIMAL(10,4)` for exact numerical precision — no flo
 * **`GET /api/v1/inventory/transactions/`** `[ALL]`: Queries historical transaction audit trails with optional filters by batch, type, date range.
 
 #### E. Production & Assembly Domain (`/api/v1/production`)
-* **`POST /api/v1/production/`** `[ADMIN, OPERATOR]`: Creates a production order with status `PLANNED`. Accepts an array of line items specifying input batches and consumed quantities, plus the target output batch details (product ID, quantity, expiration date).
-* **`POST /api/v1/production/{id}/start`** `[ADMIN, OPERATOR]`: Transitions status to `IN_PROGRESS`.
+* **`POST /api/v1/production/`** `[ADMIN, OPERATOR]`: Creates a production order with status `PLANNED` (201). One atomic transaction: validates the output product exists and is `FINISHED_GOOD`, validates each input batch exists and belongs to a `WHITE_LABEL`/`PACKAGING` product, creates the output batch as `RESERVED` (exists but not sellable), then inserts the order and its line items — any failure rolls back every write. Body: `line_items` (array of `input_batch_id` + `quantity_consumed`), `output_product_id`, `output_batch_number`, `output_quantity`, `output_expiration_date`. Response: `{ "order": {...}, "line_items": [...] }`. Errors: 400 (invalid body), 404 (unknown product or input batch), 422 (non-`FINISHED_GOOD` output or non-`WHITE_LABEL`/`PACKAGING` input).
+* **`POST /api/v1/production/{id}/start`** `[ADMIN, OPERATOR]`: Transitions `PLANNED → IN_PROGRESS` (200). The order row is locked `FOR UPDATE` so concurrent starts cannot both pass the status guard. Errors: 400 (malformed id), 404 (unknown order), 409 (not `PLANNED`).
 * **`POST /api/v1/production/{id}/complete`** `[ADMIN, OPERATOR]`: Atomically locks all input batches, deducts quantities (`USED_IN_PRODUCTION`), finalizes the output batch, sets status to `COMPLETED`, and links all transactions to the production order ID. Full rollback on any failure.
 * **`POST /api/v1/production/{id}/cancel`** `[ADMIN]`: Cancels a `PLANNED` or `IN_PROGRESS` order. No inventory impact.
 * **`GET /api/v1/production/`** `[ALL]`: Lists production orders with optional status filter.
