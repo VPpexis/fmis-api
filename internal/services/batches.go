@@ -109,7 +109,7 @@ func (s *BatchService) ListActiveByProduct(ctx context.Context, productIDStr str
 		return nil, fmt.Errorf("get product: %w", getErr)
 	}
 
-	batches, err := s.batches.GetActivateBatchesByProduct(ctx, s.pool, productID)
+	batches, err := s.batches.GetActiveBatchesByProduct(ctx, s.pool, productID)
 	if err != nil {
 		return nil, fmt.Errorf("list batches: %w", err)
 	}

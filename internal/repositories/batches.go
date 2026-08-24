@@ -53,8 +53,8 @@ func (r *BatchRepository) GetBatchByIDForUpdate(ctx context.Context, q Querier, 
 	return scanBatch(row)
 }
 
-// GetActivateBatchesByProduct lists ACTIVE batches for a product in FEFO order:
-func (r *BatchRepository) GetActivateBatchesByProduct(ctx context.Context, q Querier, productID uuid.UUID) ([]models.InventoryBatch, error) {
+// GetActiveBatchesByProduct lists ACTIVE batches for a product in FEFO order:
+func (r *BatchRepository) GetActiveBatchesByProduct(ctx context.Context, q Querier, productID uuid.UUID) ([]models.InventoryBatch, error) {
 	rows, err := q.Query(ctx, `
 		SELECT id, product_id, batch_number, quantity_initial, quantity_current, status, expiration_date, created_at, updated_at
 		FROM inventory_batches
