@@ -25,6 +25,7 @@ func New(auth *services.AuthService,
 	batches *services.BatchService,
 	products *services.ProductService,
 	inventory *services.InventoryService,
+	productionOrder *services.ProductionOrderService,
 	pinger Pinger,
 	jwtSecret string,
 	logger *slog.Logger,
@@ -92,6 +93,15 @@ func New(auth *services.AuthService,
 				r.Post("/consume", ir.consume)
 			})
 			r.Get("/transactions/", ir.listTransactions)
+		})
+
+		por := NewProductionOrderRouter(productionOrder, logger)
+		r.Route("/api/v1/production", func(r chi.Router) {
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin, models.UserRoleTypeOperator))
+				r.Post("/", por.create)
+				r.Post("/{id}/start", por.start)
+			})
 		})
 	})
 

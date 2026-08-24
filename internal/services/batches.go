@@ -73,6 +73,7 @@ func (s *BatchService) Receive(ctx context.Context, req schemas.CreateBatchReque
 			ProductID:      productID,
 			BatchNumber:    req.BatchNumber,
 			Quantity:       req.Quantity,
+			Status:         models.BatchStatusTypeActive,
 			ExpirationDate: req.ExpirationDate,
 		})
 		if err != nil {

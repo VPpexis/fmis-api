@@ -37,6 +37,7 @@ const (
 	BatchStatusTypeDepleted    BatchStatusType = "DEPLETED"
 	BatchStatusTypeQuarantined BatchStatusType = "QUARANTINED"
 	BatchStatusTypeExpired     BatchStatusType = "EXPIRED"
+	BatchStatusTypeReserved    BatchStatusType = "RESERVED"
 )
 
 // TransactionType values describe the kind of movement recorded on a batch.

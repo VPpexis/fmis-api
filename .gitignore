@@ -29,3 +29,6 @@ go.work
 # Docker
 .docker/
 
+# Personal learning notes
+docs/LEARNING_NOTES*.md
+

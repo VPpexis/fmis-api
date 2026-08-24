@@ -15,19 +15,20 @@ type CreateBatchParams struct {
 	ProductID      uuid.UUID
 	BatchNumber    string
 	Quantity       string
+	Status         models.BatchStatusType
 	ExpirationDate *time.Time
 }
 
 // BatchRepository reads and writes inventory_batches and stock_transactions.
 type BatchRepository struct{}
 
-// CreateBatch inserts a new ACTIVE batch and returns the stored row.
+// CreateBatch inserts a new batch and returns the stored row.
 func (r *BatchRepository) CreateBatch(ctx context.Context, q Querier, p CreateBatchParams) (models.InventoryBatch, error) {
 	row := q.QueryRow(ctx, `
 		INSERT INTO inventory_batches (product_id, batch_number, quantity_initial, quantity_current, status, expiration_date)
-		VALUES ($1, $2, $3, $3, 'ACTIVE', $4)
+		VALUES ($1, $2, $3, $3, $4, $5)
 		RETURNING id, product_id, batch_number, quantity_initial, quantity_current, status, expiration_date, created_at, updated_at`,
-		p.ProductID, p.BatchNumber, p.Quantity, p.ExpirationDate)
+		p.ProductID, p.BatchNumber, p.Quantity, p.Status, p.ExpirationDate)
 	return scanBatch(row)
 }
 
