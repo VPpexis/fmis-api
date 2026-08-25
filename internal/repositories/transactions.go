@@ -12,11 +12,12 @@ import (
 
 // CreateStockTransactionParams carries the values needed to insert a stock movement row.
 type CreateStockTransactionParams struct {
-	BatchID         uuid.UUID
-	QuantityChange  string
-	TransactionType models.TransactionType
-	PerformedBy     uuid.UUID
-	ReferenceNote   *string
+	BatchID           uuid.UUID
+	ProductionOrderID *uuid.UUID
+	QuantityChange    string
+	TransactionType   models.TransactionType
+	PerformedBy       uuid.UUID
+	ReferenceNote     *string
 }
 
 // ListStockTransactionParams carries the values needed to list stock transactions with pagination.
@@ -33,12 +34,12 @@ type ListStockTransactionParams struct {
 type StockTransactionRepository struct{}
 
 // CreateStockTransaction create a stock_transaction.
-func (r *StockTransactionRepository) CreateStockTransaction(ctx context.Context, q Querier, p CreateStockTransactionParams) (models.StockTransaction, error) {
+func (r *StockTransactionRepository) CreateStockTransaction(ctx context.Context, q Querier, p *CreateStockTransactionParams) (models.StockTransaction, error) {
 	row := q.QueryRow(ctx, `
-		INSERT INTO stock_transactions (batch_id, quantity_change, transaction_type, performed_by, reference_note)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO stock_transactions (batch_id, production_order_id, quantity_change, transaction_type, performed_by, reference_note)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, batch_id, production_order_id, quantity_change, transaction_type, performed_by, reference_note, created_at`,
-		p.BatchID, p.QuantityChange, p.TransactionType, p.PerformedBy, p.ReferenceNote)
+		p.BatchID, p.ProductionOrderID, p.QuantityChange, p.TransactionType, p.PerformedBy, p.ReferenceNote)
 	return scanStockTransaction(row)
 }
 

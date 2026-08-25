@@ -45,6 +45,29 @@ func (r *ProductionOrderRepository) CreateProductionOrderLineItem(ctx context.Co
 	return scanProductionOrderLineItem(row)
 }
 
+// GetProductionOrderLineItemsByOrderID fetch all line items for production order.
+func (r *ProductionOrderRepository) GetProductionOrderLineItemsByOrderID(ctx context.Context, q Querier, orderID uuid.UUID) ([]models.ProductionOrderLineItem, error) {
+	rows, err := q.Query(ctx, `
+		SELECT id, production_order_id, input_batch_id, quantity_consumed, created_at
+		FROM production_order_line_items
+		WHERE production_order_id = $1`,
+		orderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	productionOrderLineItems := make([]models.ProductionOrderLineItem, 0)
+	for rows.Next() {
+		p, err := scanProductionOrderLineItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		productionOrderLineItems = append(productionOrderLineItems, p)
+	}
+	return productionOrderLineItems, rows.Err()
+}
+
 // GetProductionOrderByIDForUpdate fetches a batch by its primary key and locks the row
 // until the surrounding transaction commits.
 func (r *ProductionOrderRepository) GetProductionOrderByIDForUpdate(ctx context.Context, q Querier, id uuid.UUID) (models.ProductionOrder, error) {
@@ -61,10 +84,11 @@ func (r *ProductionOrderRepository) GetProductionOrderByIDForUpdate(ctx context.
 func (r *ProductionOrderRepository) UpdateProductionOrderStatus(ctx context.Context, q Querier, orderID uuid.UUID, status models.ProductionOrderStatusType) (models.ProductionOrder, error) {
 	row := q.QueryRow(ctx, `
 		UPDATE production_orders
-		SET status = $2
+		SET status = $2,
+			completed_at = CASE WHEN $3::text = 'COMPLETED' THEN now() ELSE completed_at END
 		WHERE id = $1
 		RETURNING id, output_batch_id, status, created_by, created_at, completed_at`,
-		orderID, status)
+		orderID, status, status)
 	return scanProductionOrder(row)
 }
 

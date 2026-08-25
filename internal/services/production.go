@@ -9,6 +9,8 @@ import (
 	"fmis-api/internal/repositories"
 	"fmis-api/internal/schemas"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -24,19 +26,21 @@ var (
 
 // ProductionOrderService owns the business logic for production_orders.
 type ProductionOrderService struct {
-	pool            *pgxpool.Pool
-	products        *repositories.ProductRepository
-	batches         *repositories.BatchRepository
-	productionOrder *repositories.ProductionOrderRepository
+	pool             *pgxpool.Pool
+	products         *repositories.ProductRepository
+	batches          *repositories.BatchRepository
+	productionOrder  *repositories.ProductionOrderRepository
+	stockTransaction *repositories.StockTransactionRepository
 }
 
 // NewProductionOrderService creates a new production_order.
 func NewProductionOrderService(pool *pgxpool.Pool) *ProductionOrderService {
 	return &ProductionOrderService{
-		pool:            pool,
-		products:        &repositories.ProductRepository{},
-		batches:         &repositories.BatchRepository{},
-		productionOrder: &repositories.ProductionOrderRepository{},
+		pool:             pool,
+		products:         &repositories.ProductRepository{},
+		batches:          &repositories.BatchRepository{},
+		productionOrder:  &repositories.ProductionOrderRepository{},
+		stockTransaction: &repositories.StockTransactionRepository{},
 	}
 }
 
@@ -171,4 +175,99 @@ func (s *ProductionOrderService) Start(ctx context.Context, orderIDStr string) (
 		return models.ProductionOrder{}, err
 	}
 	return productionOrder, nil
+}
+
+// Complete atomically consumes the order's input batches (USED_IN_PRODUCTION),
+// activates the RESERVED output batch with the MIN input expiration date, and
+// marks the order COMPLETED. The order row is locked FOR UPDATE so duplicate
+// or concurrent completes cannot both pass the status guard.
+func (s *ProductionOrderService) Complete(ctx context.Context, orderIDStr string) (models.ProductionOrder, []models.ProductionOrderLineItem, error) {
+	orderID, err := uuid.Parse(orderIDStr)
+	if err != nil {
+		return models.ProductionOrder{}, nil, ErrInvalidRequest
+	}
+
+	performedByRaw := middleware.UserIDFromContext(ctx)
+	performedBy, err := uuid.Parse(performedByRaw)
+	if err != nil {
+		return models.ProductionOrder{}, nil, ErrInvalidRequest
+	}
+
+	var productionOrder models.ProductionOrder
+	productionOrderLineItems := make([]models.ProductionOrderLineItem, 0)
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var getErr error
+		productionOrder, getErr = s.productionOrder.GetProductionOrderByIDForUpdate(ctx, tx, orderID)
+		if getErr != nil {
+			if errors.Is(getErr, pgx.ErrNoRows) {
+				return ErrProductionOrderNotFound
+			}
+			return fmt.Errorf("get production order: %w", getErr)
+		}
+		if productionOrder.Status != models.ProductionOrderStatusTypeInProgress {
+			return ErrInvalidProductionOrderState
+		}
+
+		productionOrderLineItems, getErr = s.productionOrder.GetProductionOrderLineItemsByOrderID(ctx, tx, orderID)
+		if getErr != nil {
+			return fmt.Errorf("get production order line items: %w", getErr)
+		}
+
+		var outputExpiration *time.Time
+		for i := range productionOrderLineItems {
+			item := &productionOrderLineItems[i]
+
+			batch, getErr2 := s.batches.GetBatchByIDForUpdate(ctx, tx, item.InputBatchID)
+			if getErr2 != nil {
+				return fmt.Errorf("lock input batch: %w", getErr2)
+			}
+
+			consumed, getErr2 := item.QuantityConsumed.Float64Value()
+			if getErr2 != nil {
+				return fmt.Errorf("parse consumed quantity: %w", getErr2)
+			}
+			current, getErr2 := batch.QuantityCurrent.Float64Value()
+			if getErr2 != nil {
+				return fmt.Errorf("parse batch %s quantity: %w", batch.ID, getErr2)
+			}
+			if current.Float64 < consumed.Float64 {
+				return ErrInsufficientStock
+			}
+
+			deductStr := strconv.FormatFloat(-consumed.Float64, 'f', 4, 64)
+			if _, getErr2 = s.batches.UpdateBatchQuantity(ctx, tx, item.InputBatchID, deductStr); getErr2 != nil {
+				return fmt.Errorf("deduct input batches: %w", getErr2)
+			}
+
+			if _, getErr2 = s.stockTransaction.CreateStockTransaction(ctx, tx, &repositories.CreateStockTransactionParams{
+				BatchID:           item.InputBatchID,
+				ProductionOrderID: &orderID,
+				QuantityChange:    deductStr,
+				TransactionType:   models.TransactionTypeUsedInProduction,
+				PerformedBy:       performedBy,
+			}); getErr2 != nil {
+				return fmt.Errorf("record production transaction: %w", getErr2)
+			}
+
+			if batch.ExpirationDate.Valid &&
+				(outputExpiration == nil || batch.ExpirationDate.Time.Before(*outputExpiration)) {
+				t := batch.ExpirationDate.Time
+				outputExpiration = &t
+			}
+		}
+
+		if _, getErr2 := s.batches.ActivateProductionOutput(ctx, tx, productionOrder.OutputBatchID, outputExpiration); getErr2 != nil {
+			return fmt.Errorf("activate output batch: %w", getErr2)
+		}
+
+		productionOrder, getErr = s.productionOrder.UpdateProductionOrderStatus(ctx, tx, orderID, models.ProductionOrderStatusTypeCompleted)
+		if getErr != nil {
+			return fmt.Errorf("update production order status: %w", getErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return models.ProductionOrder{}, nil, err
+	}
+	return productionOrder, productionOrderLineItems, nil
 }
