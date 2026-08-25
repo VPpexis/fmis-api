@@ -151,7 +151,7 @@ func (s *InventoryService) Adjust(ctx context.Context, req schemas.AdjustStockRe
 			return fmt.Errorf("update batch quantity: %w", getErr)
 		}
 
-		transaction, getErr = s.stockTransactions.CreateStockTransaction(ctx, tx, repositories.CreateStockTransactionParams{
+		transaction, getErr = s.stockTransactions.CreateStockTransaction(ctx, tx, &repositories.CreateStockTransactionParams{
 			BatchID:         batchID,
 			QuantityChange:  req.QuantityChange,
 			TransactionType: models.TransactionType(req.TransactionType),
@@ -213,7 +213,7 @@ func (s *InventoryService) Consume(ctx context.Context, req schemas.ConsumeStock
 				return fmt.Errorf("deduct batch %s: %w", batch.ID, getErr2)
 			}
 
-			txRow, getErr2 := s.stockTransactions.CreateStockTransaction(ctx, tx, repositories.CreateStockTransactionParams{
+			txRow, getErr2 := s.stockTransactions.CreateStockTransaction(ctx, tx, &repositories.CreateStockTransactionParams{
 				BatchID:         batch.ID,
 				QuantityChange:  "-" + takeStr,
 				TransactionType: models.TransactionTypeOutgoing,

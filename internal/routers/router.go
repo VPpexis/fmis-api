@@ -101,6 +101,7 @@ func New(auth *services.AuthService,
 				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin, models.UserRoleTypeOperator))
 				r.Post("/", por.create)
 				r.Post("/{id}/start", por.start)
+				r.Post("/{id}/complete", por.complete)
 			})
 		})
 	})

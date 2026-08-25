@@ -4,9 +4,9 @@ package routers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"fmis-api/internal/models"
 	"fmis-api/internal/testutil"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -70,6 +70,13 @@ func TestProductionRoutesRequireAuth(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("POST start without token = %d, want 401", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/production/"+uuid.New().String()+"/complete", http.NoBody)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST complete without token = %d, want 401", rec.Code)
 	}
 }
 
@@ -229,5 +236,101 @@ func TestStartProductionOrderHTTP(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("unknown order start = %d, want 404", rec.Code)
+	}
+}
+
+// TestCompleteProductionOrderHTTP covers the complete lifecycle: RBAC guard,
+// happy path, duplicate 409, and unknown-order 404.
+func TestCompleteProductionOrderHTTP(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	inProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeWhiteLabel)
+	outProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeFinishedGood)
+
+	inputBatchID := seedInputBatch(t, router, &user, inProduct.ID.String())
+	rec := createProductionOrder(t, router, &user, inputBatchID, outProduct.ID.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Order struct {
+			ID            string `json:"id"`
+			OutputBatchID string `json:"output_batch_id"`
+		} `json:"order"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	startURL := "/api/v1/production/" + created.Order.ID + "/start"
+	req := httptest.NewRequest(http.MethodPost, startURL, http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	completeURL := "/api/v1/production/" + created.Order.ID + "/complete"
+	completeAs := func(role string) *httptest.ResponseRecorder {
+		cReq := httptest.NewRequest(http.MethodPost, completeURL, http.NoBody)
+		cReq.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), role))
+		r := httptest.NewRecorder()
+		router.ServeHTTP(r, cReq)
+		return r
+	}
+
+	if r := completeAs(string(models.UserRoleTypeViewer)); r.Code != http.StatusForbidden {
+		t.Errorf("VIEWER complete = %d, want 403", r.Code)
+	}
+
+	rec = completeAs(string(models.UserRoleTypeOperator))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("complete = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var completed struct {
+		Order struct {
+			Status      string `json:"status"`
+			CompletedAt any    `json:"completed_at"`
+		} `json:"order"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &completed); err != nil {
+		t.Fatalf("decode complete response: %v", err)
+	}
+	if completed.Order.Status != "COMPLETED" {
+		t.Errorf("status = %s, want COMPLETED", completed.Order.Status)
+	}
+	if completed.Order.CompletedAt == nil {
+		t.Error("completed_at is null, want a timestamp")
+	}
+
+	if r := completeAs(string(models.UserRoleTypeOperator)); r.Code != http.StatusConflict {
+		t.Errorf("second complete = %d, want 409", r.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/production/"+uuid.New().String()+"/complete", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown order complete = %d, want 404", rec.Code)
+	}
+
+	var qty float64
+	if err := pool.QueryRow(ctx, `SELECT quantity_current FROM inventory_batches WHERE id = $1`, inputBatchID).Scan(&qty); err != nil {
+		t.Fatalf("query input batch: %v", err)
+	}
+	if qty != 8 {
+		t.Errorf("input batch quantity = %v, want 8 (deducted once)", qty)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM inventory_batches WHERE id = $1`, created.Order.OutputBatchID).Scan(&status); err != nil {
+		t.Fatalf("query output batch: %v", err)
+	}
+	if status != "ACTIVE" {
+		t.Errorf("output batch status = %s, want ACTIVE", status)
 	}
 }

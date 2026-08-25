@@ -45,6 +45,24 @@ func (po *ProductionOrderRouter) create(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// complete handles POST /api/v1/production/{id}/complete
+func (po *ProductionOrderRouter) complete(w http.ResponseWriter, r *http.Request) {
+	productionOrderID := chi.URLParam(r, "id")
+
+	productionOrder, productionOrderLineItem, err := po.svc.Complete(r.Context(), productionOrderID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Order     models.ProductionOrder           `json:"order"`
+		LineItems []models.ProductionOrderLineItem `json:"line_items"`
+	}{
+		Order:     productionOrder,
+		LineItems: productionOrderLineItem,
+	})
+}
+
 // start handles POST /api/v1/production/{id}/start
 func (po *ProductionOrderRouter) start(w http.ResponseWriter, r *http.Request) {
 	productionOrderID := chi.URLParam(r, "id")

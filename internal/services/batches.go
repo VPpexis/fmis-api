@@ -79,7 +79,7 @@ func (s *BatchService) Receive(ctx context.Context, req schemas.CreateBatchReque
 		if err != nil {
 			return fmt.Errorf("create batch: %w", err)
 		}
-		_, err = s.stockTransaction.CreateStockTransaction(ctx, tx, repositories.CreateStockTransactionParams{
+		_, err = s.stockTransaction.CreateStockTransaction(ctx, tx, &repositories.CreateStockTransactionParams{
 			BatchID:         batch.ID,
 			QuantityChange:  req.Quantity,
 			TransactionType: models.TransactionTypeIncoming,

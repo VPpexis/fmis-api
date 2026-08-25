@@ -103,6 +103,18 @@ func (r *BatchRepository) GetActiveBatchesByProductForUpdate(ctx context.Context
 	return batches, rows.Err()
 }
 
+// ActivateProductionOutput activates a RESERVED output batch and sets its
+// expiration date, computed as MIN of input expirations
+func (r *BatchRepository) ActivateProductionOutput(ctx context.Context, q Querier, batchID uuid.UUID, expirationDate *time.Time) (models.InventoryBatch, error) {
+	row := q.QueryRow(ctx, `
+		UPDATE inventory_batches
+		SET status = 'ACTIVE', expiration_date = $2, updated_at = now()
+		WHERE id = $1
+		RETURNING id, product_id, batch_number, quantity_initial, quantity_current, status, expiration_date, created_at, updated_at`,
+		batchID, expirationDate)
+	return scanBatch(row)
+}
+
 // SetBatchStatus updates the status of a batch.
 func (r *BatchRepository) SetBatchStatus(ctx context.Context, q Querier, batchID uuid.UUID, status models.BatchStatusType) (models.InventoryBatch, error) {
 	row := q.QueryRow(ctx, `

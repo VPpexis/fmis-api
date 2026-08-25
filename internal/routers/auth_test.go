@@ -4,10 +4,10 @@ package routers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"fmis-api/internal/models"
 	"fmis-api/internal/schemas"
 	"fmis-api/internal/testutil"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
