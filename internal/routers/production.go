@@ -24,6 +24,20 @@ func NewProductionOrderRouter(svc *services.ProductionOrderService, logger *slog
 	return &ProductionOrderRouter{svc: svc, validate: schemas.NewValidator(), logger: logger}
 }
 
+// list handles GET /api/v1/production
+func (po *ProductionOrderRouter) list(w http.ResponseWriter, r *http.Request) {
+	productionOrderStatusType := r.URL.Query().Get("status")
+	limit := r.URL.Query().Get("limit")
+	offset := r.URL.Query().Get("offset")
+
+	productionOrders, err := po.svc.List(r.Context(), productionOrderStatusType, limit, offset)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, productionOrders)
+}
+
 // create handles POST /api/v1/production
 func (po *ProductionOrderRouter) create(w http.ResponseWriter, r *http.Request) {
 	var req schemas.CreateProductionOrderRequest
@@ -63,11 +77,41 @@ func (po *ProductionOrderRouter) complete(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// getByID handles GET /api/v1/production/{id}
+func (po *ProductionOrderRouter) getByID(w http.ResponseWriter, r *http.Request) {
+	productionOrderID := chi.URLParam(r, "id")
+
+	productionOrder, productionOrderLineItem, err := po.svc.GetByID(r.Context(), productionOrderID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Order     models.ProductionOrder           `json:"order"`
+		LineItems []models.ProductionOrderLineItem `json:"line_items"`
+	}{
+		Order:     productionOrder,
+		LineItems: productionOrderLineItem,
+	})
+}
+
 // start handles POST /api/v1/production/{id}/start
 func (po *ProductionOrderRouter) start(w http.ResponseWriter, r *http.Request) {
 	productionOrderID := chi.URLParam(r, "id")
 
 	productionOrder, err := po.svc.Start(r.Context(), productionOrderID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, productionOrder)
+}
+
+// cancel handles POST /api/v1/production/{id}/cancel
+func (po *ProductionOrderRouter) cancel(w http.ResponseWriter, r *http.Request) {
+	productionOrderID := chi.URLParam(r, "id")
+
+	productionOrder, err := po.svc.Cancel(r.Context(), productionOrderID)
 	if err != nil {
 		writeError(w, err)
 		return

@@ -103,6 +103,12 @@ func New(auth *services.AuthService,
 				r.Post("/{id}/start", por.start)
 				r.Post("/{id}/complete", por.complete)
 			})
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin))
+				r.Post("/{id}/cancel", por.cancel)
+			})
+			r.Get("/", por.list)
+			r.Get("/{id}", por.getByID)
 		})
 	})
 
