@@ -107,6 +107,7 @@ func New(auth *services.AuthService,
 				r.Use(middleware.RequireRole(models.UserRoleTypeAdmin))
 				r.Post("/{id}/cancel", por.cancel)
 			})
+			r.Get("/", por.list)
 		})
 	})
 

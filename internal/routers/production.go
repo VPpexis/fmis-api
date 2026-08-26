@@ -24,6 +24,20 @@ func NewProductionOrderRouter(svc *services.ProductionOrderService, logger *slog
 	return &ProductionOrderRouter{svc: svc, validate: schemas.NewValidator(), logger: logger}
 }
 
+// list handles GET /api/v1/production
+func (po *ProductionOrderRouter) list(w http.ResponseWriter, r *http.Request) {
+	productionOrderStatusType := r.URL.Query().Get("status")
+	limit := r.URL.Query().Get("limit")
+	offset := r.URL.Query().Get("offset")
+
+	productionOrders, err := po.svc.List(r.Context(), productionOrderStatusType, limit, offset)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, productionOrders)
+}
+
 // create handles POST /api/v1/production
 func (po *ProductionOrderRouter) create(w http.ResponseWriter, r *http.Request) {
 	var req schemas.CreateProductionOrderRequest

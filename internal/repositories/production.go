@@ -22,6 +22,13 @@ type CreateProductionOrderLineItemParams struct {
 	QuantityConsumed  string
 }
 
+// ListProductionOrderParams is the payload for GET /api/v1/production.
+type ListProductionOrderParams struct {
+	Status *models.ProductionOrderStatusType
+	Limit  int
+	Offset int
+}
+
 // ProductionOrderRepository reads and writes production_orders.
 type ProductionOrderRepository struct{}
 
@@ -78,6 +85,32 @@ func (r *ProductionOrderRepository) GetProductionOrderByIDForUpdate(ctx context.
 		FOR UPDATE`,
 		id)
 	return scanProductionOrder(row)
+}
+
+// ListProductionOrders returns all production orders with an optional status filter.
+func (r *ProductionOrderRepository) ListProductionOrders(ctx context.Context, q Querier, p ListProductionOrderParams) ([]models.ProductionOrder, error) {
+	rows, err := q.Query(ctx, `
+		SELECT id, output_batch_id, status, created_by, created_at, completed_at
+		FROM production_orders
+		WHERE $1::production_order_status IS NULL OR status = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3`,
+		p.Status, p.Limit, p.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	productionOrders := make([]models.ProductionOrder, 0)
+	for rows.Next() {
+		por, err := scanProductionOrder(rows)
+		if err != nil {
+			return nil, err
+		}
+		productionOrders = append(productionOrders, por)
+	}
+	return productionOrders, rows.Err()
 }
 
 // UpdateProductionOrderStatus updates the status of the production_order

@@ -44,6 +44,46 @@ func NewProductionOrderService(pool *pgxpool.Pool) *ProductionOrderService {
 	}
 }
 
+// List returns all production orders with an optional status filter.
+func (s *ProductionOrderService) List(ctx context.Context, productionOrderStatusTypeStr, limitStr, offsetStr string) ([]models.ProductionOrder, error) {
+	limit := 20
+	if limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+	offset := 0
+	if offsetStr != "" {
+		if parsed, err := strconv.Atoi(offsetStr); err == nil && parsed > 0 {
+			offset = parsed
+		}
+	}
+
+	var productionOrderStatusType *models.ProductionOrderStatusType
+	if productionOrderStatusTypeStr != "" {
+		status := models.ProductionOrderStatusType(productionOrderStatusTypeStr)
+		switch status {
+		case models.ProductionOrderStatusTypePlanned,
+			models.ProductionOrderStatusTypeInProgress,
+			models.ProductionOrderStatusTypeCompleted,
+			models.ProductionOrderStatusTypeCancelled:
+			productionOrderStatusType = &status
+		default:
+			return nil, ErrInvalidRequest
+		}
+	}
+
+	productionOrders, err := s.productionOrder.ListProductionOrders(ctx, s.pool, repositories.ListProductionOrderParams{
+		Status: productionOrderStatusType,
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list production order: %w", err)
+	}
+	return productionOrders, nil
+}
+
 // Create creates a new production_order and records it.
 func (s *ProductionOrderService) Create(ctx context.Context, req *schemas.CreateProductionOrderRequest) (models.ProductionOrder, []models.ProductionOrderLineItem, error) {
 	outputProductID, err := uuid.Parse(req.OutputProductID)

@@ -504,3 +504,145 @@ func TestCancelCompletedProductionOrder(t *testing.T) {
 		t.Errorf("cancel completed = %d, want 409; body: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// listProductionOrders posts a GET /api/v1/production request as the given
+// role with the given query string and returns the response recorder.
+func listProductionOrders(t *testing.T, router http.Handler, user *models.User, role, query string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/production/"+query, http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), role))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestListProductionOrdersHTTP covers GET /api/v1/production: any
+// authenticated role can list ([ALL]), and the status filter narrows results.
+func TestListProductionOrdersHTTP(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	viewer := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeViewer)
+	inProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeWhiteLabel)
+	outProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeFinishedGood)
+
+	inputBatchID := seedInputBatch(t, router, &user, inProduct.ID.String())
+	for i := 0; i < 2; i++ {
+		rec := createProductionOrder(t, router, &user, inputBatchID, outProduct.ID.String())
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %d = %d, want 201; body: %s", i, rec.Code, rec.Body.String())
+		}
+	}
+
+	// A VIEWER may list production orders: the route is [ALL].
+	rec := listProductionOrders(t, router, &viewer, string(models.UserRoleTypeViewer), "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var orders []struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &orders); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(orders) != 2 {
+		t.Fatalf("len(orders) = %d, want 2", len(orders))
+	}
+	for _, o := range orders {
+		if o.Status != "PLANNED" {
+			t.Errorf("order status = %s, want PLANNED", o.Status)
+		}
+	}
+
+	// The status filter keeps only matching orders.
+	rec = listProductionOrders(t, router, &viewer, string(models.UserRoleTypeViewer), "?status=PLANNED")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("filtered list = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	orders = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &orders); err != nil {
+		t.Fatalf("decode filtered list response: %v", err)
+	}
+	if len(orders) != 2 {
+		t.Errorf("len(orders) = %d, want 2", len(orders))
+	}
+
+	// A filter with no matches returns an empty array, not null.
+	rec = listProductionOrders(t, router, &viewer, string(models.UserRoleTypeViewer), "?status=COMPLETED")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty list = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	orders = nil
+	if err := json.Unmarshal(rec.Body.Bytes(), &orders); err != nil {
+		t.Fatalf("decode empty list response: %v", err)
+	}
+	if len(orders) != 0 {
+		t.Errorf("len(orders) = %d, want 0", len(orders))
+	}
+}
+
+// TestListProductionOrdersInvalidStatus proves an unknown status filter gets a
+// 400 instead of a 500 from Postgres.
+func TestListProductionOrdersInvalidStatus(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	viewer := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeViewer)
+
+	rec := listProductionOrders(t, router, &viewer, string(models.UserRoleTypeViewer), "?status=BOGUS")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestListProductionOrdersPagination proves the limit/offset defaults and
+// overrides behave like the products list.
+func TestListProductionOrdersPagination(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	viewer := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeViewer)
+	inProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeWhiteLabel)
+	outProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeFinishedGood)
+
+	inputBatchID := seedInputBatch(t, router, &user, inProduct.ID.String())
+	for i := 0; i < 2; i++ {
+		rec := createProductionOrder(t, router, &user, inputBatchID, outProduct.ID.String())
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %d = %d, want 201; body: %s", i, rec.Code, rec.Body.String())
+		}
+	}
+
+	count := func(query string) int {
+		t.Helper()
+		rec := listProductionOrders(t, router, &viewer, string(models.UserRoleTypeViewer), query)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list %s = %d, want 200; body: %s", query, rec.Code, rec.Body.String())
+		}
+		var orders []struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &orders); err != nil {
+			t.Fatalf("decode list response: %v", err)
+		}
+		return len(orders)
+	}
+
+	if got := count(""); got != 2 {
+		t.Errorf("default limit = %d, want 2", got)
+	}
+	if got := count("?limit=1"); got != 1 {
+		t.Errorf("limit=1 = %d, want 1", got)
+	}
+	if got := count("?offset=1"); got != 1 {
+		t.Errorf("offset=1 = %d, want 1", got)
+	}
+	if got := count("?limit=999"); got != 2 {
+		t.Errorf("limit=999 (capped at 100) = %d, want 2", got)
+	}
+}
