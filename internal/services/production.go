@@ -177,6 +177,40 @@ func (s *ProductionOrderService) Start(ctx context.Context, orderIDStr string) (
 	return productionOrder, nil
 }
 
+// Cancel transitions a PLANNED or IN_PROGRESS production order to CANCELLED.
+func (s *ProductionOrderService) Cancel(ctx context.Context, orderIDStr string) (models.ProductionOrder, error) {
+	orderID, err := uuid.Parse(orderIDStr)
+	if err != nil {
+		return models.ProductionOrder{}, ErrInvalidRequest
+	}
+
+	var productionOrder models.ProductionOrder
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var getErr error
+		productionOrder, getErr = s.productionOrder.GetProductionOrderByIDForUpdate(ctx, tx, orderID)
+		if getErr != nil {
+			if errors.Is(getErr, pgx.ErrNoRows) {
+				return ErrProductionOrderNotFound
+			}
+			return fmt.Errorf("get production order: %w", getErr)
+		}
+
+		if productionOrder.Status != models.ProductionOrderStatusTypePlanned && productionOrder.Status != models.ProductionOrderStatusTypeInProgress {
+			return ErrInvalidProductionOrderState
+		}
+
+		productionOrder, getErr = s.productionOrder.UpdateProductionOrderStatus(ctx, tx, orderID, models.ProductionOrderStatusTypeCancelled)
+		if getErr != nil {
+			return fmt.Errorf("update production order status: %w", getErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return models.ProductionOrder{}, err
+	}
+	return productionOrder, nil
+}
+
 // Complete atomically consumes the order's input batches (USED_IN_PRODUCTION),
 // activates the RESERVED output batch with the MIN input expiration date, and
 // marks the order COMPLETED. The order row is locked FOR UPDATE so duplicate

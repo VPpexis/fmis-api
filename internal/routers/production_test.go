@@ -334,3 +334,173 @@ func TestCompleteProductionOrderHTTP(t *testing.T) {
 		t.Errorf("output batch status = %s, want ACTIVE", status)
 	}
 }
+
+// TestCancelProductionOrderRBAC proves only ADMIN can cancel an order.
+func TestCancelProductionOrderRBAC(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	inProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeWhiteLabel)
+	outProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeFinishedGood)
+
+	inputBatchID := seedInputBatch(t, router, &user, inProduct.ID.String())
+	rec := createProductionOrder(t, router, &user, inputBatchID, outProduct.ID.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Order struct {
+			ID string `json:"id"`
+		} `json:"order"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	cancelURL := "/api/v1/production/" + created.Order.ID + "/cancel"
+	cancelAs := func(role string) *httptest.ResponseRecorder {
+		cReq := httptest.NewRequest(http.MethodPost, cancelURL, http.NoBody)
+		cReq.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), role))
+		r := httptest.NewRecorder()
+		router.ServeHTTP(r, cReq)
+		return r
+	}
+
+	if r := cancelAs(string(models.UserRoleTypeViewer)); r.Code != http.StatusForbidden {
+		t.Errorf("VIEWER cancel = %d, want 403", r.Code)
+	}
+	if r := cancelAs(string(models.UserRoleTypeOperator)); r.Code != http.StatusForbidden {
+		t.Errorf("OPERATOR cancel = %d, want 403", r.Code)
+	}
+}
+
+// TestCancelProductionOrderHTTP covers the cancel lifecycle: happy path on a
+// PLANNED order with no inventory impact, duplicate 409, and unknown-order 404.
+func TestCancelProductionOrderHTTP(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	admin := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeAdmin)
+	inProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeWhiteLabel)
+	outProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeFinishedGood)
+
+	inputBatchID := seedInputBatch(t, router, &user, inProduct.ID.String())
+	rec := createProductionOrder(t, router, &user, inputBatchID, outProduct.ID.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Order struct {
+			ID            string `json:"id"`
+			OutputBatchID string `json:"output_batch_id"`
+		} `json:"order"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	cancelURL := "/api/v1/production/" + created.Order.ID + "/cancel"
+	cancelAs := func(role string) *httptest.ResponseRecorder {
+		cReq := httptest.NewRequest(http.MethodPost, cancelURL, http.NoBody)
+		cReq.Header.Set("Authorization", "Bearer "+signTestToken(t, admin.ID.String(), role))
+		r := httptest.NewRecorder()
+		router.ServeHTTP(r, cReq)
+		return r
+	}
+
+	rec = cancelAs(string(models.UserRoleTypeAdmin))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var cancelled struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &cancelled); err != nil {
+		t.Fatalf("decode cancel response: %v", err)
+	}
+	if cancelled.Status != "CANCELLED" {
+		t.Errorf("status = %s, want CANCELLED", cancelled.Status)
+	}
+
+	var qty float64
+	if err := pool.QueryRow(ctx, `SELECT quantity_current FROM inventory_batches WHERE id = $1`, inputBatchID).Scan(&qty); err != nil {
+		t.Fatalf("query input batch: %v", err)
+	}
+	if qty != 10 {
+		t.Errorf("input batch quantity = %v, want 10 (no inventory impact)", qty)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM inventory_batches WHERE id = $1`, created.Order.OutputBatchID).Scan(&status); err != nil {
+		t.Fatalf("query output batch: %v", err)
+	}
+	if status != "RESERVED" {
+		t.Errorf("output batch status = %s, want RESERVED (no inventory impact)", status)
+	}
+
+	if r := cancelAs(string(models.UserRoleTypeAdmin)); r.Code != http.StatusConflict {
+		t.Errorf("second cancel = %d, want 409", r.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/production/"+uuid.New().String()+"/cancel", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, admin.ID.String(), string(models.UserRoleTypeAdmin)))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown order cancel = %d, want 404", rec.Code)
+	}
+}
+
+// TestCancelCompletedProductionOrder proves COMPLETED orders cannot be
+// cancelled (acceptance criterion).
+func TestCancelCompletedProductionOrder(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	admin := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeAdmin)
+	inProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeWhiteLabel)
+	outProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeFinishedGood)
+
+	inputBatchID := seedInputBatch(t, router, &user, inProduct.ID.String())
+	rec := createProductionOrder(t, router, &user, inputBatchID, outProduct.ID.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Order struct {
+			ID string `json:"id"`
+		} `json:"order"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/production/"+created.Order.ID+"/start", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/production/"+created.Order.ID+"/complete", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("complete = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/production/"+created.Order.ID+"/cancel", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, admin.ID.String(), string(models.UserRoleTypeAdmin)))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("cancel completed = %d, want 409; body: %s", rec.Code, rec.Body.String())
+	}
+}

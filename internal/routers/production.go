@@ -74,3 +74,15 @@ func (po *ProductionOrderRouter) start(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, productionOrder)
 }
+
+// cancel handles POST /api/v1/production/{id}/cancel
+func (po *ProductionOrderRouter) cancel(w http.ResponseWriter, r *http.Request) {
+	productionOrderID := chi.URLParam(r, "id")
+
+	productionOrder, err := po.svc.Cancel(r.Context(), productionOrderID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, productionOrder)
+}
