@@ -505,6 +505,58 @@ func TestCancelCompletedProductionOrder(t *testing.T) {
 	}
 }
 
+// TestCancelInProgressProductionOrder proves an IN_PROGRESS order can be
+// cancelled: create -> start -> cancel succeeds with status CANCELLED.
+func TestCancelInProgressProductionOrder(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	admin := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeAdmin)
+	inProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeWhiteLabel)
+	outProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeFinishedGood)
+
+	inputBatchID := seedInputBatch(t, router, &user, inProduct.ID.String())
+	rec := createProductionOrder(t, router, &user, inputBatchID, outProduct.ID.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Order struct {
+			ID string `json:"id"`
+		} `json:"order"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/production/"+created.Order.ID+"/start", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), string(models.UserRoleTypeOperator)))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/production/"+created.Order.ID+"/cancel", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, admin.ID.String(), string(models.UserRoleTypeAdmin)))
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel in-progress = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var cancelled struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &cancelled); err != nil {
+		t.Fatalf("decode cancel response: %v", err)
+	}
+	if cancelled.Status != "CANCELLED" {
+		t.Errorf("status = %s, want CANCELLED", cancelled.Status)
+	}
+}
+
 // listProductionOrders posts a GET /api/v1/production request as the given
 // role with the given query string and returns the response recorder.
 func listProductionOrders(t *testing.T, router http.Handler, user *models.User, role, query string) *httptest.ResponseRecorder {
