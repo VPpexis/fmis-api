@@ -181,6 +181,28 @@ func (s *ProductionOrderService) Create(ctx context.Context, req *schemas.Create
 	return productionOrder, productionOrderLineItems, nil
 }
 
+// GetByID returns a single production order by ID with its line items.
+func (s *ProductionOrderService) GetByID(ctx context.Context, productionOrderIDStr string) (models.ProductionOrder, []models.ProductionOrderLineItem, error) {
+	productionOrderID, err := uuid.Parse(productionOrderIDStr)
+	if err != nil {
+		return models.ProductionOrder{}, nil, ErrInvalidRequest
+	}
+
+	productionOrder, err := s.productionOrder.GetProductionOrderByID(ctx, s.pool, productionOrderID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.ProductionOrder{}, nil, ErrProductionOrderNotFound
+		}
+		return models.ProductionOrder{}, nil, fmt.Errorf("get production order: %w", err)
+	}
+
+	productionOrderLineItems, err := s.productionOrder.GetProductionOrderLineItemsByOrderID(ctx, s.pool, productionOrder.ID)
+	if err != nil {
+		return models.ProductionOrder{}, nil, fmt.Errorf("list production line items: %w", err)
+	}
+	return productionOrder, productionOrderLineItems, nil
+}
+
 // Start transitions a PLANNED production order to IN_PROGRESS. The row is
 // locked with SELECT ... FOR UPDATE so concurrent starts cannot both pass
 // the status guard: only the first transition succeeds.

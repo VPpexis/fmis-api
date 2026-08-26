@@ -646,3 +646,91 @@ func TestListProductionOrdersPagination(t *testing.T) {
 		t.Errorf("limit=999 (capped at 100) = %d, want 2", got)
 	}
 }
+
+// getProductionOrderByID issues a GET /api/v1/production/{id} request as the
+// given role and returns the response recorder.
+func getProductionOrderByID(t *testing.T, router http.Handler, user *models.User, role, orderID string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/production/"+orderID, http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+signTestToken(t, user.ID.String(), role))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// TestGetProductionOrderByIDHTTP covers GET /api/v1/production/{id}: any
+// authenticated role can read it ([ALL]), and the response includes the
+// order's line items.
+func TestGetProductionOrderByIDHTTP(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	user := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeOperator)
+	viewer := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeViewer)
+	inProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeWhiteLabel)
+	outProduct := testutil.CreateProduct(ctx, t, pool, models.ProductTypeFinishedGood)
+
+	inputBatchID := seedInputBatch(t, router, &user, inProduct.ID.String())
+	rec := createProductionOrder(t, router, &user, inputBatchID, outProduct.ID.String())
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201; body: %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Order struct {
+			ID string `json:"id"`
+		} `json:"order"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	rec = getProductionOrderByID(t, router, &viewer, string(models.UserRoleTypeViewer), created.Order.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var detail struct {
+		Order struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"order"`
+		LineItems []struct {
+			InputBatchID string `json:"input_batch_id"`
+		} `json:"line_items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if detail.Order.ID != created.Order.ID {
+		t.Errorf("order id = %s, want %s", detail.Order.ID, created.Order.ID)
+	}
+	if detail.Order.Status != "PLANNED" {
+		t.Errorf("order status = %s, want PLANNED", detail.Order.Status)
+	}
+	if len(detail.LineItems) != 1 {
+		t.Fatalf("len(line_items) = %d, want 1", len(detail.LineItems))
+	}
+	if detail.LineItems[0].InputBatchID != inputBatchID {
+		t.Errorf("line item input_batch_id = %s, want %s", detail.LineItems[0].InputBatchID, inputBatchID)
+	}
+}
+
+// TestGetProductionOrderByIDErrors covers the malformed-id 400 and
+// unknown-order 404 paths.
+func TestGetProductionOrderByIDErrors(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	router := newTestRouter(t, pool)
+	ctx := context.Background()
+	viewer := testutil.CreateUser(ctx, t, pool, models.UserRoleTypeViewer)
+
+	rec := getProductionOrderByID(t, router, &viewer, string(models.UserRoleTypeViewer), "not-a-uuid")
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("malformed id = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = getProductionOrderByID(t, router, &viewer, string(models.UserRoleTypeViewer), uuid.New().String())
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown id = %d, want 404; body: %s", rec.Code, rec.Body.String())
+	}
+}

@@ -108,6 +108,7 @@ func New(auth *services.AuthService,
 				r.Post("/{id}/cancel", por.cancel)
 			})
 			r.Get("/", por.list)
+			r.Get("/{id}", por.getByID)
 		})
 	})
 

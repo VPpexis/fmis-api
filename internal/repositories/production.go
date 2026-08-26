@@ -75,7 +75,7 @@ func (r *ProductionOrderRepository) GetProductionOrderLineItemsByOrderID(ctx con
 	return productionOrderLineItems, rows.Err()
 }
 
-// GetProductionOrderByIDForUpdate fetches a batch by its primary key and locks the row
+// GetProductionOrderByIDForUpdate fetches a production order by its primary key and locks the row
 // until the surrounding transaction commits.
 func (r *ProductionOrderRepository) GetProductionOrderByIDForUpdate(ctx context.Context, q Querier, id uuid.UUID) (models.ProductionOrder, error) {
 	row := q.QueryRow(ctx, `
@@ -83,6 +83,16 @@ func (r *ProductionOrderRepository) GetProductionOrderByIDForUpdate(ctx context.
 		FROM production_orders
 		WHERE id = $1
 		FOR UPDATE`,
+		id)
+	return scanProductionOrder(row)
+}
+
+// GetProductionOrderByID fetches a production order by its primary key.
+func (r *ProductionOrderRepository) GetProductionOrderByID(ctx context.Context, q Querier, id uuid.UUID) (models.ProductionOrder, error) {
+	row := q.QueryRow(ctx, `
+		SELECT id, output_batch_id, status, created_by, created_at, completed_at
+		FROM production_orders
+		WHERE id = $1`,
 		id)
 	return scanProductionOrder(row)
 }
