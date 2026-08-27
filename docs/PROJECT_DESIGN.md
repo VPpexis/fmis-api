@@ -281,6 +281,35 @@ All quantity fields use `DECIMAL(10,4)` for exact numerical precision — no flo
 | **OPERATOR** | Create only | Full | Full | Full | Read self |
 | **VIEWER** | Read only | Read only | Read only | Read only | Read self |
 
+#### H. Error Handling & Pagination Conventions
+
+**Error envelope.** Every error response uses the same JSON envelope:
+
+```json
+{ "error": "<message>" }
+```
+
+Status codes are assigned by the router layer from sentinel service errors:
+
+| Status | Meaning | Examples |
+| --- | --- | --- |
+| `400` | Malformed request | Invalid JSON body, validation-tag failures, malformed UUID |
+| `401` | Authentication failed | Missing/invalid/expired JWT, bad credentials, invalid refresh token |
+| `403` | RBAC rejected | Authenticated role not allowed for the endpoint |
+| `404` | Resource missing | Unknown product, batch, or production order; unknown route |
+| `405` | Wrong HTTP method for a known route | `PUT /health` |
+| `409` | State conflict | Duplicate SKU, batch not `ACTIVE`, order not `PLANNED`, insufficient stock |
+| `422` | Semantically invalid | Expiration date required, non-`FINISHED_GOOD` output, non-`WHITE_LABEL` input |
+| `500` | Unexpected failure | Unhandled service error, recovered panic |
+
+The auth/RBAC/recovery middleware and the router's `NotFound`/`MethodNotAllowed` handlers all write the same envelope; no error path returns plain text except `GET /health` (load-balancer probe, intentional).
+
+**Pagination.** List endpoints (`GET /api/v1/products`, `GET /api/v1/inventory/transactions/`, `GET /api/v1/production`) share one shape:
+
+* Query params: `limit` (default `20`, max `100`) and `offset` (default `0`).
+* Response: a plain JSON array of items in the same order the data is naturally served (newest first); clients can page with `offset = limit * page`.
+* Invalid/absent params fall back to the defaults rather than erroring.
+
 ---
 
 ## Phase 2: Production Best Practices & Setup

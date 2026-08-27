@@ -32,7 +32,7 @@ func Auth(secret string) func(http.Handler) http.Handler {
 			header := r.Header.Get("Authorization")
 			token, ok := strings.CutPrefix(header, "Bearer ")
 			if !ok || token == "" {
-				w.WriteHeader(http.StatusUnauthorized)
+				WriteErrorJSON(w, http.StatusUnauthorized, "missing or invalid token")
 				return
 			}
 
@@ -48,7 +48,7 @@ func Auth(secret string) func(http.Handler) http.Handler {
 				jwt.WithExpirationRequired(),
 			)
 			if err != nil || !parsed.Valid {
-				w.WriteHeader(http.StatusUnauthorized)
+				WriteErrorJSON(w, http.StatusUnauthorized, "missing or invalid token")
 				return
 			}
 

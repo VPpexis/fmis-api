@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,18 @@ import (
 )
 
 const testSecret = "test-secret"
+
+// decodeError decodes the {"error": "..."} response envelope.
+func decodeError(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response body %q is not the error envelope: %v", rec.Body.String(), err)
+	}
+	return body.Error
+}
 
 // signToken creates a signed access token carrying the given claims.
 func signToken(t *testing.T, secret, userID, role string, exp time.Time) string {
@@ -103,8 +116,13 @@ func TestRequireRoleEnforcesMatrix(t *testing.T) {
 			if tt.want == http.StatusOK && !capturer.called {
 				t.Error("handler was not reached")
 			}
-			if tt.want == http.StatusForbidden && capturer.called {
-				t.Error("handler ran despite 403")
+			if tt.want == http.StatusForbidden {
+				if capturer.called {
+					t.Error("handler ran despite 403")
+				}
+				if got := decodeError(t, rec); got != "insufficient role" {
+					t.Errorf("403 body = %q, want %q", got, "insufficient role")
+				}
 			}
 		})
 	}
@@ -151,6 +169,9 @@ func TestAuthRejectsUnauthenticatedRequests(t *testing.T) {
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 			}
+			if got := decodeError(t, rec); got != "missing or invalid token" {
+				t.Errorf("401 body = %q, want %q", got, "missing or invalid token")
+			}
 			if capturer.called {
 				t.Error("handler ran despite invalid token")
 			}
@@ -170,5 +191,8 @@ func TestRecovererReturns500OnPanic(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if got := decodeError(t, rec); got != "internal server error" {
+		t.Errorf("500 body = %q, want %q", got, "internal server error")
 	}
 }

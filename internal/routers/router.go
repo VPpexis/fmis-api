@@ -39,6 +39,13 @@ func New(auth *services.AuthService,
 	r.Use(middleware.Logging(logger))
 	r.Use(middleware.Recoverer(logger))
 
+	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+		middleware.WriteErrorJSON(w, http.StatusNotFound, "not found")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
+		middleware.WriteErrorJSON(w, http.StatusMethodNotAllowed, "method not allowed")
+	})
+
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
