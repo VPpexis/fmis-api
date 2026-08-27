@@ -1,6 +1,15 @@
 // Package main is the API service entry point: config, database pool, wiring, and HTTP server lifecycle.
 package main
 
+// @title FMIS API
+// @version 1.0.0
+// @description Food Manufacturing Inventory System REST API.
+// @BasePath /api/v1
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Pass the JWT access token as `Authorization: Bearer <token>`.
+
 import (
 	"context"
 	"errors"

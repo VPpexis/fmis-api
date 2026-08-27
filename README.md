@@ -45,6 +45,7 @@ See `docs/PROJECT_DESIGN.md` for the authoritative spec.
 | Testing | stdlib `testing` (table-driven) | Implemented |
 | Linting | `golangci-lint` | Implemented |
 | Hot Reload | `air` | Implemented |
+| API Docs | `swaggo/swag` + `swaggo/http-swagger` | Implemented (issue #52) |
 
 ## Prerequisites
 
@@ -115,6 +116,9 @@ go vet ./...
 # Tests
 go test ./... -v -race
 
+# Regenerate OpenAPI docs from swag annotations (run after changing router handlers)
+swag init -g cmd/api/main.go -o docs/api --parseDependency
+
 # Verify dependencies are tidy
 go mod tidy && git diff --exit-code
 ```
@@ -138,6 +142,7 @@ go mod tidy && git diff --exit-code
 | `POST` | `/api/v1/auth/register` | Create user (bcrypt hash, default `VIEWER` role), returns access + refresh tokens. Duplicate username/email → `409` |
 | `POST` | `/api/v1/auth/login` | Verify credentials by username or email, returns token pair. Any failure → `401` |
 | `GET` | `/health` | DB connectivity probe (load balancer) |
+| `GET` | `/docs` | Interactive OpenAPI/Swagger UI (generated from `swag` annotations) |
 
 Auth flow: access token is a 15m HS256 JWT (`Authorization: Bearer <token>`); the refresh token is 7d, stored as a SHA-256 hash in `refresh_tokens`.
 

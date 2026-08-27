@@ -1,6 +1,8 @@
 // Package schemas for products.
 package schemas
 
+import "fmis-api/internal/models"
+
 // CreateProductRequest is the payload for POST /api/v1/products.
 type CreateProductRequest struct {
 	SKU           string `json:"sku" validate:"required,max=100"`
@@ -19,3 +21,6 @@ type UpdateProductRequest struct {
 	IsPurchasable *bool   `json:"is_purchasable"`
 	IsSellable    *bool   `json:"is_sellable"`
 }
+
+// Product is the product entity returned by product endpoints.
+type Product = models.Product

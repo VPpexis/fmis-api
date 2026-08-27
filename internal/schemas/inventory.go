@@ -1,6 +1,8 @@
 // Package schemas for inventory.
 package schemas
 
+import "fmis-api/internal/models"
+
 // AdjustStockRequest is the payload for recording a WASTE or ADJUSTMENT stock movement.
 type AdjustStockRequest struct {
 	BatchID         string  `json:"batch_id" validate:"required,uuid"`
@@ -15,3 +17,6 @@ type ConsumeStockRequest struct {
 	Quantity      string  `json:"quantity" validate:"required,quantity"`
 	ReferenceNote *string `json:"reference_note" validate:"omitempty,max=500"`
 }
+
+// StockTransaction is the transaction entity returned by inventory endpoints.
+type StockTransaction = models.StockTransaction
