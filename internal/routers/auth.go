@@ -34,6 +34,16 @@ func (a *AuthRouter) Routes(r chi.Router) {
 }
 
 // refresh handles POST /api/v1/auth/refresh
+// @Summary Refresh an access token
+// @Description Exchanges a valid refresh token for a new access token + refresh token pair.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body schemas.RefreshRequest true "Refresh token payload"
+// @Success 200 {object} schemas.TokenResponse
+// @Failure 400 {object} map[string]string "Invalid body"
+// @Failure 401 {object} map[string]string "Invalid or expired refresh token"
+// @Router /auth/refresh [post]
 func (a *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 	var req schemas.RefreshRequest
 	if err := decodeAndValidate(a.validate, w, r, &req); err != nil {
@@ -48,6 +58,16 @@ func (a *AuthRouter) refresh(w http.ResponseWriter, r *http.Request) {
 }
 
 // logout handles POST /api/v1/auth/logout
+// @Summary Log out
+// @Description Revokes a refresh token, ending the session. The access token itself remains valid until it expires.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body schemas.LogoutRequest true "Refresh token to revoke"
+// @Success 204 "No content"
+// @Failure 400 {object} map[string]string "Invalid body"
+// @Failure 401 {object} map[string]string "Invalid refresh token"
+// @Router /auth/logout [post]
 func (a *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 	var req schemas.LogoutRequest
 	if err := decodeAndValidate(a.validate, w, r, &req); err != nil {
@@ -61,6 +81,14 @@ func (a *AuthRouter) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 // me handles GET /api/v1/auth/me
+// @Summary Get current user
+// @Description Returns the authenticated user's profile (id, username, email, role).
+// @Tags auth
+// @Produce json
+// @Success 200 {object} schemas.MeResponse
+// @Failure 401 {object} map[string]string "Missing or invalid token"
+// @Router /auth/me [get]
+// @Security BearerAuth
 func (a *AuthRouter) me(w http.ResponseWriter, r *http.Request) {
 	resp, err := a.svc.Me(r.Context(), middleware.UserIDFromContext(r.Context()))
 	if err != nil {
@@ -71,6 +99,16 @@ func (a *AuthRouter) me(w http.ResponseWriter, r *http.Request) {
 }
 
 // register handles POST /api/v1/auth/reg
+// @Summary Register a new user
+// @Description Creates a user with the default VIEWER role and returns a token pair. Requires a unique username and email.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body schemas.RegisterRequest true "Registration payload"
+// @Success 201 {object} schemas.TokenResponse
+// @Failure 400 {object} map[string]string "Invalid body"
+// @Failure 409 {object} map[string]string "Username or email already taken"
+// @Router /auth/register [post]
 func (a *AuthRouter) register(w http.ResponseWriter, r *http.Request) {
 	var req schemas.RegisterRequest
 	if err := decodeAndValidate(a.validate, w, r, &req); err != nil {
@@ -86,6 +124,16 @@ func (a *AuthRouter) register(w http.ResponseWriter, r *http.Request) {
 }
 
 // login handles POST /api/v1/auth/login
+// @Summary Log in
+// @Description Verifies credentials by username or email and returns a token pair.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body schemas.LoginRequest true "Login payload"
+// @Success 200 {object} schemas.TokenResponse
+// @Failure 400 {object} map[string]string "Invalid body"
+// @Failure 401 {object} map[string]string "Invalid credentials"
+// @Router /auth/login [post]
 func (a *AuthRouter) login(w http.ResponseWriter, r *http.Request) {
 	var req schemas.LoginRequest
 	if err := decodeAndValidate(a.validate, w, r, &req); err != nil {

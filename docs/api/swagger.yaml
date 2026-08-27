@@ -1,0 +1,1421 @@
+basePath: /api/v1
+definitions:
+  big.Int:
+    type: object
+  fmis-api_internal_models.BatchStatusType:
+    enum:
+    - ACTIVE
+    - DEPLETED
+    - QUARANTINED
+    - EXPIRED
+    - RESERVED
+    type: string
+    x-enum-varnames:
+    - BatchStatusTypeActive
+    - BatchStatusTypeDepleted
+    - BatchStatusTypeQuarantined
+    - BatchStatusTypeExpired
+    - BatchStatusTypeReserved
+  fmis-api_internal_models.ProductType:
+    enum:
+    - RAW_MATERIAL
+    - PACKAGING
+    - FINISHED_GOOD
+    - WHITE_LABEL
+    type: string
+    x-enum-varnames:
+    - ProductTypeRawMaterial
+    - ProductTypePackaging
+    - ProductTypeFinishedGood
+    - ProductTypeWhiteLabel
+  fmis-api_internal_models.ProductionOrder:
+    properties:
+      completed_at:
+        $ref: '#/definitions/pgtype.Timestamptz'
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      output_batch_id:
+        type: string
+      status:
+        $ref: '#/definitions/fmis-api_internal_models.ProductionOrderStatusType'
+    type: object
+  fmis-api_internal_models.ProductionOrderLineItem:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      input_batch_id:
+        type: string
+      production_order_id:
+        type: string
+      quantity_consumed:
+        $ref: '#/definitions/pgtype.Numeric'
+    type: object
+  fmis-api_internal_models.ProductionOrderStatusType:
+    enum:
+    - PLANNED
+    - IN_PROGRESS
+    - COMPLETED
+    - CANCELLED
+    type: string
+    x-enum-varnames:
+    - ProductionOrderStatusTypePlanned
+    - ProductionOrderStatusTypeInProgress
+    - ProductionOrderStatusTypeCompleted
+    - ProductionOrderStatusTypeCancelled
+  fmis-api_internal_models.TransactionType:
+    enum:
+    - INCOMING
+    - OUTGOING
+    - USED_IN_PRODUCTION
+    - WASTE
+    - ADJUSTMENT
+    type: string
+    x-enum-varnames:
+    - TransactionTypeIncoming
+    - TransactionTypeOutgoing
+    - TransactionTypeUsedInProduction
+    - TransactionTypeWaste
+    - TransactionTypeAdjustment
+  fmis-api_internal_schemas.AdjustStockRequest:
+    properties:
+      batch_id:
+        type: string
+      quantity_change:
+        type: string
+      reference_note:
+        maxLength: 500
+        type: string
+      transaction_type:
+        enum:
+        - WASTE
+        - ADJUSTMENT
+        type: string
+    required:
+    - batch_id
+    - quantity_change
+    - transaction_type
+    type: object
+  fmis-api_internal_schemas.ConsumeStockRequest:
+    properties:
+      product_id:
+        type: string
+      quantity:
+        type: string
+      reference_note:
+        maxLength: 500
+        type: string
+    required:
+    - product_id
+    - quantity
+    type: object
+  fmis-api_internal_schemas.CreateBatchRequest:
+    properties:
+      batch_number:
+        maxLength: 100
+        type: string
+      expiration_date:
+        type: string
+      product_id:
+        type: string
+      quantity:
+        type: string
+    required:
+    - batch_number
+    - product_id
+    - quantity
+    type: object
+  fmis-api_internal_schemas.CreateProductRequest:
+    properties:
+      is_purchasable:
+        type: boolean
+      is_sellable:
+        type: boolean
+      name:
+        maxLength: 200
+        type: string
+      product_type:
+        enum:
+        - RAW_MATERIAL
+        - PACKAGING
+        - FINISHED_GOOD
+        - WHITE_LABEL
+        type: string
+      sku:
+        maxLength: 100
+        type: string
+      unit_of_measure:
+        maxLength: 20
+        type: string
+    required:
+    - name
+    - product_type
+    - sku
+    - unit_of_measure
+    type: object
+  fmis-api_internal_schemas.CreateProductionOrderRequest:
+    properties:
+      line_items:
+        items:
+          $ref: '#/definitions/fmis-api_internal_schemas.ProductionLineItemRequest'
+        minItems: 1
+        type: array
+      output_batch_number:
+        maxLength: 100
+        type: string
+      output_expiration_date:
+        type: string
+      output_product_id:
+        type: string
+      output_quantity:
+        type: string
+    required:
+    - line_items
+    - output_batch_number
+    - output_product_id
+    - output_quantity
+    type: object
+  fmis-api_internal_schemas.InventoryBatch:
+    properties:
+      batch_number:
+        type: string
+      created_at:
+        type: string
+      expiration_date:
+        $ref: '#/definitions/pgtype.Timestamptz'
+      id:
+        type: string
+      product_id:
+        type: string
+      quantity_current:
+        $ref: '#/definitions/pgtype.Numeric'
+      quantity_initial:
+        $ref: '#/definitions/pgtype.Numeric'
+      status:
+        $ref: '#/definitions/fmis-api_internal_models.BatchStatusType'
+      updated_at:
+        type: string
+    type: object
+  fmis-api_internal_schemas.LoginRequest:
+    properties:
+      identifier:
+        maxLength: 255
+        type: string
+      password:
+        type: string
+    required:
+    - identifier
+    - password
+    type: object
+  fmis-api_internal_schemas.LogoutRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  fmis-api_internal_schemas.MeResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+      username:
+        type: string
+    type: object
+  fmis-api_internal_schemas.Product:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      is_purchasable:
+        type: boolean
+      is_sellable:
+        type: boolean
+      name:
+        type: string
+      product_type:
+        $ref: '#/definitions/fmis-api_internal_models.ProductType'
+      sku:
+        type: string
+      unit_of_measure:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  fmis-api_internal_schemas.ProductionLineItemRequest:
+    properties:
+      input_batch_id:
+        type: string
+      quantity_consumed:
+        type: string
+    required:
+    - input_batch_id
+    - quantity_consumed
+    type: object
+  fmis-api_internal_schemas.ProductionOrder:
+    properties:
+      completed_at:
+        $ref: '#/definitions/pgtype.Timestamptz'
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      output_batch_id:
+        type: string
+      status:
+        $ref: '#/definitions/fmis-api_internal_models.ProductionOrderStatusType'
+    type: object
+  fmis-api_internal_schemas.ProductionOrderResponse:
+    properties:
+      line_items:
+        items:
+          $ref: '#/definitions/fmis-api_internal_models.ProductionOrderLineItem'
+        type: array
+      order:
+        $ref: '#/definitions/fmis-api_internal_models.ProductionOrder'
+    type: object
+  fmis-api_internal_schemas.RefreshRequest:
+    properties:
+      refresh_token:
+        type: string
+    required:
+    - refresh_token
+    type: object
+  fmis-api_internal_schemas.RegisterRequest:
+    properties:
+      email:
+        maxLength: 100
+        minLength: 3
+        type: string
+      password:
+        maxLength: 72
+        minLength: 8
+        type: string
+      username:
+        maxLength: 100
+        minLength: 3
+        type: string
+    required:
+    - email
+    - password
+    - username
+    type: object
+  fmis-api_internal_schemas.StockTransaction:
+    properties:
+      batch_id:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      performed_by:
+        type: string
+      production_order_id:
+        type: string
+      quantity_change:
+        $ref: '#/definitions/pgtype.Numeric'
+      reference_note:
+        $ref: '#/definitions/pgtype.Text'
+      transaction_type:
+        $ref: '#/definitions/fmis-api_internal_models.TransactionType'
+    type: object
+  fmis-api_internal_schemas.TokenResponse:
+    properties:
+      access_token:
+        type: string
+      expires_in:
+        type: integer
+      refresh_token:
+        type: string
+      token_type:
+        type: string
+    type: object
+  fmis-api_internal_schemas.UpdateProductRequest:
+    properties:
+      is_purchasable:
+        type: boolean
+      is_sellable:
+        type: boolean
+      name:
+        maxLength: 200
+        type: string
+      sku:
+        maxLength: 100
+        type: string
+      unit_of_measure:
+        maxLength: 20
+        type: string
+    type: object
+  pgtype.InfinityModifier:
+    enum:
+    - 1
+    - 0
+    - -1
+    format: int32
+    type: integer
+    x-enum-varnames:
+    - Infinity
+    - Finite
+    - NegativeInfinity
+  pgtype.Numeric:
+    properties:
+      exp:
+        format: int32
+        type: integer
+      infinityModifier:
+        $ref: '#/definitions/pgtype.InfinityModifier'
+      int:
+        $ref: '#/definitions/big.Int'
+      naN:
+        type: boolean
+      valid:
+        type: boolean
+    type: object
+  pgtype.Text:
+    properties:
+      string:
+        type: string
+      valid:
+        type: boolean
+    type: object
+  pgtype.Timestamptz:
+    properties:
+      infinityModifier:
+        $ref: '#/definitions/pgtype.InfinityModifier'
+      time:
+        type: string
+      valid:
+        type: boolean
+    type: object
+info:
+  contact: {}
+  description: Food Manufacturing Inventory System REST API.
+  title: FMIS API
+  version: 1.0.0
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Verifies credentials by username or email and returns a token pair.
+      parameters:
+      - description: Login payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.TokenResponse'
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Invalid credentials
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Log in
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Revokes a refresh token, ending the session. The access token itself
+        remains valid until it expires.
+      parameters:
+      - description: Refresh token to revoke
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.LogoutRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Invalid refresh token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Log out
+      tags:
+      - auth
+  /auth/me:
+    get:
+      description: Returns the authenticated user's profile (id, username, email,
+        role).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.MeResponse'
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a valid refresh token for a new access token + refresh
+        token pair.
+      parameters:
+      - description: Refresh token payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.TokenResponse'
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Invalid or expired refresh token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Refresh an access token
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: Creates a user with the default VIEWER role and returns a token
+        pair. Requires a unique username and email.
+      parameters:
+      - description: Registration payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.TokenResponse'
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Username or email already taken
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a new user
+      tags:
+      - auth
+  /batches:
+    post:
+      consumes:
+      - application/json
+      description: Registers an incoming lot of a product. ADMIN or OPERATOR role
+        required.
+      parameters:
+      - description: Batch payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.CreateBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.InventoryBatch'
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Product not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Expiration date required for this product
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Receive a batch
+      tags:
+      - batches
+  /batches/{batch_id}/quarantine:
+    patch:
+      description: Marks an ACTIVE batch as QUARANTINED so it is excluded from FEFO
+        consumption. ADMIN or OPERATOR role required.
+      parameters:
+      - description: Batch UUID
+        in: path
+        name: batch_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.InventoryBatch'
+        "400":
+          description: Malformed batch id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Batch not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Batch not in ACTIVE state
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Quarantine a batch
+      tags:
+      - batches
+  /batches/product/{product_id}:
+    get:
+      description: Returns all non-depleted, non-quarantined batches for a product,
+        ordered FEFO (soonest expiration first).
+      parameters:
+      - description: Product UUID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/fmis-api_internal_schemas.InventoryBatch'
+            type: array
+        "400":
+          description: Malformed product id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Product not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List active batches for a product
+      tags:
+      - batches
+  /inventory/adjust:
+    post:
+      consumes:
+      - application/json
+      description: Records a WASTE or ADJUSTMENT stock movement on a single batch.
+        ADMIN or OPERATOR role required.
+      parameters:
+      - description: Adjustment payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.AdjustStockRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.StockTransaction'
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Batch not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Batch state prevents adjustment
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Quantity would exceed available stock
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Adjust or waste stock
+      tags:
+      - inventory
+  /inventory/consume:
+    post:
+      consumes:
+      - application/json
+      description: Deducts stock across batches of a product, oldest expiration first
+        (FEFO). ADMIN or OPERATOR role required.
+      parameters:
+      - description: Consumption payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.ConsumeStockRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            items:
+              $ref: '#/definitions/fmis-api_internal_schemas.StockTransaction'
+            type: array
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Product not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Insufficient stock
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Consume stock (FEFO)
+      tags:
+      - inventory
+  /inventory/transactions/:
+    get:
+      description: Returns the immutable audit trail of stock movements, optionally
+        filtered.
+      parameters:
+      - description: Filter by batch UUID
+        in: query
+        name: batch_id
+        type: string
+      - description: Filter by type (INCOMING, OUTGOING, USED_IN_PRODUCTION, WASTE,
+          ADJUSTMENT)
+        in: query
+        name: transaction_type
+        type: string
+      - description: Only transactions created at or after this RFC3339 timestamp
+        in: query
+        name: date_from
+        type: string
+      - description: Only transactions created at or before this RFC3339 timestamp
+        in: query
+        name: date_to
+        type: string
+      - description: Max results (default 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Skip N results
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/fmis-api_internal_schemas.StockTransaction'
+            type: array
+        "400":
+          description: Invalid filter values
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List stock transactions
+      tags:
+      - inventory
+  /production:
+    get:
+      description: Lists production orders, optionally filtered by status and paginated.
+      parameters:
+      - description: Filter by status (PLANNED, IN_PROGRESS, COMPLETED, CANCELLED)
+        in: query
+        name: status
+        type: string
+      - description: Max results (default 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Skip N results
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/fmis-api_internal_schemas.ProductionOrder'
+            type: array
+        "400":
+          description: Invalid filter values
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List production orders
+      tags:
+      - production
+    post:
+      consumes:
+      - application/json
+      description: 'Creates a PLANNED production order: validates the output product
+        and input batches, reserves the output batch, and inserts the order with its
+        line items in one transaction. ADMIN or OPERATOR role required.'
+      parameters:
+      - description: Production order payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.CreateProductionOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.ProductionOrderResponse'
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Unknown product or input batch
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: Non-finished-good output or non-white-label input
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a production order
+      tags:
+      - production
+  /production/{id}:
+    get:
+      description: Retrieves a single production order with its line items.
+      parameters:
+      - description: Production order UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.ProductionOrderResponse'
+        "400":
+          description: Malformed id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Production order not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a production order
+      tags:
+      - production
+  /production/{id}/cancel:
+    post:
+      description: Cancels a PLANNED or IN_PROGRESS order. No inventory impact. ADMIN
+        role required.
+      parameters:
+      - description: Production order UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.ProductionOrder'
+        "400":
+          description: Malformed id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Production order not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Order not in PLANNED or IN_PROGRESS state
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Cancel a production order
+      tags:
+      - production
+  /production/{id}/complete:
+    post:
+      description: Atomically deducts input batch quantities, finalizes the output
+        batch, and links all transactions to the order. ADMIN or OPERATOR role required.
+      parameters:
+      - description: Production order UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.ProductionOrderResponse'
+        "400":
+          description: Malformed id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Production order not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Order not in IN_PROGRESS state
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Complete a production order
+      tags:
+      - production
+  /production/{id}/start:
+    post:
+      description: Transitions a PLANNED order to IN_PROGRESS. The order row is locked
+        to prevent concurrent starts. ADMIN or OPERATOR role required.
+      parameters:
+      - description: Production order UUID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.ProductionOrder'
+        "400":
+          description: Malformed id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Production order not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Order not in PLANNED state
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Start a production order
+      tags:
+      - production
+  /products:
+    get:
+      description: Lists catalog products, optionally filtered by product type and
+        paginated.
+      parameters:
+      - description: Filter by type (RAW_MATERIAL, PACKAGING, FINISHED_GOOD, WHITE_LABEL)
+        in: query
+        name: product_type
+        type: string
+      - description: Max results (default 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Skip N results
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/fmis-api_internal_schemas.Product'
+            type: array
+        "400":
+          description: Invalid filter values
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List products
+      tags:
+      - products
+    post:
+      consumes:
+      - application/json
+      description: Adds a new catalog item. ADMIN or OPERATOR role required.
+      parameters:
+      - description: Product payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.CreateProductRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.Product'
+        "400":
+          description: Invalid body
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: SKU already exists
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a product
+      tags:
+      - products
+  /products/{product_id}:
+    delete:
+      description: Soft-deletes a catalog product. ADMIN role required. Fails if the
+        product still has active batches.
+      parameters:
+      - description: Product UUID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No content
+        "400":
+          description: Malformed product id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Product not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Product has active batches
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Delete a product
+      tags:
+      - products
+    get:
+      description: Retrieves a single catalog product by UUID.
+      parameters:
+      - description: Product UUID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.Product'
+        "400":
+          description: Malformed product id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Product not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get a product
+      tags:
+      - products
+    patch:
+      consumes:
+      - application/json
+      description: Partially updates a catalog product. ADMIN role required.
+      parameters:
+      - description: Product UUID
+        in: path
+        name: product_id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/fmis-api_internal_schemas.UpdateProductRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/fmis-api_internal_schemas.Product'
+        "400":
+          description: Invalid body or product id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Missing or invalid token
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient role
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Product not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: SKU already exists
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update a product
+      tags:
+      - products
+securityDefinitions:
+  BearerAuth:
+    description: 'Pass the JWT access token as `Authorization: Bearer <token>`.'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

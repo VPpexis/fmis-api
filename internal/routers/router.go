@@ -9,7 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 
+	_ "fmis-api/docs/api" // registers the swagger spec at startup
 	"fmis-api/internal/middleware"
 	"fmis-api/internal/models"
 	"fmis-api/internal/services"
@@ -49,6 +51,11 @@ func New(auth *services.AuthService,
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+
+	r.Get("/docs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/docs/", http.StatusMovedPermanently)
+	})
+	r.Mount("/docs/", httpSwagger.Handler(httpSwagger.URL("/docs/doc.json")))
 
 	r.Route("/api/v1/auth", func(r chi.Router) {
 		ar := NewAuthRouter(auth, logger)

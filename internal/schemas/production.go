@@ -1,7 +1,11 @@
 // Package schemas for production orders.
 package schemas
 
-import "time"
+import (
+	"time"
+
+	"fmis-api/internal/models"
+)
 
 // CreateProductionOrderRequest is the payload for creating a production order.
 type CreateProductionOrderRequest struct {
@@ -17,3 +21,12 @@ type ProductionLineItemRequest struct {
 	InputBatchID     string `json:"input_batch_id" validate:"required,uuid"`
 	QuantityConsumed string `json:"quantity_consumed" validate:"required,quantity"`
 }
+
+// ProductionOrderResponse is the composite payload returned by production order create, detail, and complete.
+type ProductionOrderResponse struct {
+	Order     models.ProductionOrder           `json:"order"`
+	LineItems []models.ProductionOrderLineItem `json:"line_items"`
+}
+
+// ProductionOrder is the order entity returned by production endpoints.
+type ProductionOrder = models.ProductionOrder

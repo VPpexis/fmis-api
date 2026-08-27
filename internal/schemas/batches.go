@@ -1,7 +1,11 @@
 // Package schemas for batches.
 package schemas
 
-import "time"
+import (
+	"time"
+
+	"fmis-api/internal/models"
+)
 
 // CreateBatchRequest is the payload for creating a new inventory batch.
 type CreateBatchRequest struct {
@@ -10,3 +14,6 @@ type CreateBatchRequest struct {
 	Quantity       string     `json:"quantity" validate:"required,quantity"`
 	ExpirationDate *time.Time `json:"expiration_date"`
 }
+
+// InventoryBatch is the batch entity returned by batch endpoints.
+type InventoryBatch = models.InventoryBatch
