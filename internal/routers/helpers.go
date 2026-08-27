@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	"github.com/go-playground/validator/v10"
+
+	"fmis-api/internal/middleware"
 )
 
 // decodeAndValidate decodes a JSON body into dst and runs validator
@@ -29,7 +31,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// writeErrorJSON writes a uniform {"error": "..."} body.
+// writeErrorJSON writes the shared {"error": "..."} envelope.
 func writeErrorJSON(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	middleware.WriteErrorJSON(w, status, msg)
 }

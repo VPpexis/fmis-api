@@ -17,7 +17,7 @@ func RequireRole(allowed ...models.UserRoleType) func(http.Handler) http.Handler
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			role := models.UserRoleType(RoleFromContext(r.Context()))
 			if _, ok := set[role]; !ok {
-				w.WriteHeader(http.StatusForbidden)
+				WriteErrorJSON(w, http.StatusForbidden, "insufficient role")
 				return
 			}
 			next.ServeHTTP(w, r)
