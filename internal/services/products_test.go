@@ -239,6 +239,25 @@ func TestListProducts(t *testing.T) {
 	}
 }
 
+// TestListProductsRejectsInvalidProductTypeFilter covers issue #50: an
+// unknown product_type value must fail with ErrInvalidRequest (400) instead
+// of reaching Postgres and blowing up with an enum cast error.
+func TestListProductsRejectsInvalidProductTypeFilter(t *testing.T) {
+	pool := testutil.Pool(t)
+	testutil.ResetDB(t, pool)
+	ctx := context.Background()
+	svc := NewProductService(pool)
+
+	invalidFilters := []string{"BOGUS", "raw_material", " FINISHED_GOOD"}
+	for _, filter := range invalidFilters {
+		t.Run(filter, func(t *testing.T) {
+			if _, err := svc.List(ctx, filter, "", ""); !errors.Is(err, ErrInvalidRequest) {
+				t.Errorf("List(%q) error = %v, want ErrInvalidRequest", filter, err)
+			}
+		})
+	}
+}
+
 // TestSoftDelete covers the acceptance criterion: deletion is blocked while
 // ACTIVE batches exist, and succeeds for products without them.
 func TestSoftDelete(t *testing.T) {
