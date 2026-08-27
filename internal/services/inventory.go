@@ -9,7 +9,6 @@ import (
 	"fmis-api/internal/repositories"
 	"fmis-api/internal/schemas"
 	"fmt"
-	"math"
 	"strconv"
 	"time"
 
@@ -175,7 +174,7 @@ func (s *InventoryService) Consume(ctx context.Context, req schemas.ConsumeStock
 	if err != nil {
 		return nil, ErrInvalidRequest
 	}
-	remaining, err := strconv.ParseFloat(req.Quantity, 64)
+	requested, err := strconv.ParseFloat(req.Quantity, 64)
 	if err != nil {
 		return nil, ErrInvalidRequest
 	}
@@ -193,42 +192,27 @@ func (s *InventoryService) Consume(ctx context.Context, req schemas.ConsumeStock
 			return fmt.Errorf("lock batches: %w", getErr)
 		}
 
-		for i := range batches {
-			batch := &batches[i]
-			if remaining <= 0 {
-				break
-			}
+		selections, getErr := SelectFEFO(batches, requested)
+		if getErr != nil {
+			return getErr
+		}
 
-			current, getErr := batch.QuantityCurrent.Float64Value()
-			if getErr != nil {
-				return fmt.Errorf("parse batch %s quantity: %w", batch.ID, getErr)
-			}
-			take := math.Min(current.Float64, remaining)
-			if take <= 0 {
-				continue
-			}
-
-			takeStr := strconv.FormatFloat(take, 'f', 4, 64)
-			if _, getErr2 := s.batches.UpdateBatchQuantity(ctx, tx, batch.ID, "-"+takeStr); getErr2 != nil {
-				return fmt.Errorf("deduct batch %s: %w", batch.ID, getErr2)
+		for _, selection := range selections {
+			if _, getErr2 := s.batches.UpdateBatchQuantity(ctx, tx, selection.BatchID, "-"+selection.Take); getErr2 != nil {
+				return fmt.Errorf("deduct batch %s: %w", selection.BatchID, getErr2)
 			}
 
 			txRow, getErr2 := s.stockTransactions.CreateStockTransaction(ctx, tx, &repositories.CreateStockTransactionParams{
-				BatchID:         batch.ID,
-				QuantityChange:  "-" + takeStr,
+				BatchID:         selection.BatchID,
+				QuantityChange:  "-" + selection.Take,
 				TransactionType: models.TransactionTypeOutgoing,
 				PerformedBy:     performedBy,
 				ReferenceNote:   req.ReferenceNote,
 			})
 			if getErr2 != nil {
-				return fmt.Errorf("record outgoing for batch %s: %w", batch.ID, getErr2)
+				return fmt.Errorf("record outgoing for batch %s: %w", selection.BatchID, getErr2)
 			}
 			transactions = append(transactions, txRow)
-			remaining -= take
-		}
-
-		if remaining > 0 {
-			return ErrInsufficientStock
 		}
 		return nil
 	})
