@@ -81,7 +81,15 @@ func (p *ProductService) List(ctx context.Context, productTypeStr, limitStr, off
 	var productType *models.ProductType
 	if productTypeStr != "" {
 		pt := models.ProductType(productTypeStr)
-		productType = &pt
+		switch pt {
+		case models.ProductTypeFinishedGood,
+			models.ProductTypePackaging,
+			models.ProductTypeRawMaterial,
+			models.ProductTypeWhiteLabel:
+			productType = &pt
+		default:
+			return nil, ErrInvalidRequest
+		}
 	}
 
 	products, err := p.products.ListProducts(ctx, p.pool, repositories.ListProductParams{
