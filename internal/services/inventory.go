@@ -24,17 +24,30 @@ var (
 
 // InventoryService owns the business logic for stock adjustments.
 type InventoryService struct {
-	pool              *pgxpool.Pool
-	batches           *repositories.BatchRepository
-	stockTransactions *repositories.StockTransactionRepository
+	db                repositories.Querier
+	tx                TxStarter
+	batches           BatchStore
+	stockTransactions StockTransactionStore
 }
 
 // NewInventoryService creates a new InventoryService.
 func NewInventoryService(pool *pgxpool.Pool) *InventoryService {
+	return NewInventoryServiceWithDeps(
+		pool, poolTxStarter(pool),
+		&repositories.BatchRepository{},
+		&repositories.StockTransactionRepository{},
+	)
+}
+
+// NewInventoryServiceWithDeps wires the inventory domain with injectable
+// dependencies, enabling unit tests with mocked repositories and a fake
+// transaction runner.
+func NewInventoryServiceWithDeps(db repositories.Querier, tx TxStarter, batches BatchStore, stockTransactions StockTransactionStore) *InventoryService {
 	return &InventoryService{
-		pool:              pool,
-		batches:           &repositories.BatchRepository{},
-		stockTransactions: &repositories.StockTransactionRepository{},
+		db:                db,
+		tx:                tx,
+		batches:           batches,
+		stockTransactions: stockTransactions,
 	}
 }
 
@@ -92,7 +105,7 @@ func (s *InventoryService) List(ctx context.Context, batchIDStr, typeStr, fromSt
 		}
 	}
 
-	transactions, err := s.stockTransactions.ListStockTransaction(ctx, s.pool, repositories.ListStockTransactionParams{
+	transactions, err := s.stockTransactions.ListStockTransaction(ctx, s.db, repositories.ListStockTransactionParams{
 		BatchID:         batchID,
 		TransactionType: transactionType,
 		DateFrom:        dateFrom,
@@ -128,7 +141,7 @@ func (s *InventoryService) Adjust(ctx context.Context, req schemas.AdjustStockRe
 	}
 
 	var transaction models.StockTransaction
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		batch, getErr := s.batches.GetBatchByIDForUpdate(ctx, tx, batchID)
 		if getErr != nil {
 			if errors.Is(getErr, pgx.ErrNoRows) {
@@ -186,7 +199,7 @@ func (s *InventoryService) Consume(ctx context.Context, req schemas.ConsumeStock
 	}
 
 	var transactions []models.StockTransaction
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		batches, getErr := s.batches.GetActiveBatchesByProductForUpdate(ctx, tx, productID)
 		if getErr != nil {
 			return fmt.Errorf("lock batches: %w", getErr)

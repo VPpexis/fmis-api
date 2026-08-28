@@ -26,21 +26,36 @@ var (
 
 // ProductionOrderService owns the business logic for production_orders.
 type ProductionOrderService struct {
-	pool             *pgxpool.Pool
-	products         *repositories.ProductRepository
-	batches          *repositories.BatchRepository
-	productionOrder  *repositories.ProductionOrderRepository
-	stockTransaction *repositories.StockTransactionRepository
+	db               repositories.Querier
+	tx               TxStarter
+	products         ProductStore
+	batches          BatchStore
+	productionOrder  ProductionOrderStore
+	stockTransaction StockTransactionStore
 }
 
 // NewProductionOrderService creates a new production_order.
 func NewProductionOrderService(pool *pgxpool.Pool) *ProductionOrderService {
+	return NewProductionOrderServiceWithDeps(
+		pool, poolTxStarter(pool),
+		&repositories.ProductRepository{},
+		&repositories.BatchRepository{},
+		&repositories.ProductionOrderRepository{},
+		&repositories.StockTransactionRepository{},
+	)
+}
+
+// NewProductionOrderServiceWithDeps wires the production domain with
+// injectable dependencies, enabling unit tests with mocked repositories and a
+// fake transaction runner.
+func NewProductionOrderServiceWithDeps(db repositories.Querier, tx TxStarter, products ProductStore, batches BatchStore, productionOrder ProductionOrderStore, stockTransaction StockTransactionStore) *ProductionOrderService {
 	return &ProductionOrderService{
-		pool:             pool,
-		products:         &repositories.ProductRepository{},
-		batches:          &repositories.BatchRepository{},
-		productionOrder:  &repositories.ProductionOrderRepository{},
-		stockTransaction: &repositories.StockTransactionRepository{},
+		db:               db,
+		tx:               tx,
+		products:         products,
+		batches:          batches,
+		productionOrder:  productionOrder,
+		stockTransaction: stockTransaction,
 	}
 }
 
@@ -73,7 +88,7 @@ func (s *ProductionOrderService) List(ctx context.Context, productionOrderStatus
 		}
 	}
 
-	productionOrders, err := s.productionOrder.ListProductionOrders(ctx, s.pool, repositories.ListProductionOrderParams{
+	productionOrders, err := s.productionOrder.ListProductionOrders(ctx, s.db, repositories.ListProductionOrderParams{
 		Status: productionOrderStatusType,
 		Limit:  limit,
 		Offset: offset,
@@ -99,7 +114,7 @@ func (s *ProductionOrderService) Create(ctx context.Context, req *schemas.Create
 
 	var productionOrder models.ProductionOrder
 	productionOrderLineItems := make([]models.ProductionOrderLineItem, 0)
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		product, getErr := s.products.GetProductByID(ctx, tx, outputProductID)
 		if getErr != nil {
 			if errors.Is(getErr, pgx.ErrNoRows) {
@@ -188,7 +203,7 @@ func (s *ProductionOrderService) GetByID(ctx context.Context, productionOrderIDS
 		return models.ProductionOrder{}, nil, ErrInvalidRequest
 	}
 
-	productionOrder, err := s.productionOrder.GetProductionOrderByID(ctx, s.pool, productionOrderID)
+	productionOrder, err := s.productionOrder.GetProductionOrderByID(ctx, s.db, productionOrderID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return models.ProductionOrder{}, nil, ErrProductionOrderNotFound
@@ -196,7 +211,7 @@ func (s *ProductionOrderService) GetByID(ctx context.Context, productionOrderIDS
 		return models.ProductionOrder{}, nil, fmt.Errorf("get production order: %w", err)
 	}
 
-	productionOrderLineItems, err := s.productionOrder.GetProductionOrderLineItemsByOrderID(ctx, s.pool, productionOrder.ID)
+	productionOrderLineItems, err := s.productionOrder.GetProductionOrderLineItemsByOrderID(ctx, s.db, productionOrder.ID)
 	if err != nil {
 		return models.ProductionOrder{}, nil, fmt.Errorf("list production line items: %w", err)
 	}
@@ -213,7 +228,7 @@ func (s *ProductionOrderService) Start(ctx context.Context, orderIDStr string) (
 	}
 
 	var productionOrder models.ProductionOrder
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var getErr error
 		productionOrder, getErr = s.productionOrder.GetProductionOrderByIDForUpdate(ctx, tx, orderID)
 		if getErr != nil {
@@ -247,7 +262,7 @@ func (s *ProductionOrderService) Cancel(ctx context.Context, orderIDStr string) 
 	}
 
 	var productionOrder models.ProductionOrder
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var getErr error
 		productionOrder, getErr = s.productionOrder.GetProductionOrderByIDForUpdate(ctx, tx, orderID)
 		if getErr != nil {
@@ -291,7 +306,7 @@ func (s *ProductionOrderService) Complete(ctx context.Context, orderIDStr string
 
 	var productionOrder models.ProductionOrder
 	productionOrderLineItems := make([]models.ProductionOrderLineItem, 0)
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var getErr error
 		productionOrder, getErr = s.productionOrder.GetProductionOrderByIDForUpdate(ctx, tx, orderID)
 		if getErr != nil {
