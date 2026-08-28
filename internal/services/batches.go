@@ -26,19 +26,32 @@ var (
 
 // BatchService owns the business logic for inventory batches.
 type BatchService struct {
-	pool             *pgxpool.Pool
-	products         *repositories.ProductRepository
-	batches          *repositories.BatchRepository
-	stockTransaction *repositories.StockTransactionRepository
+	db               repositories.Querier
+	tx               TxStarter
+	products         ProductStore
+	batches          BatchStore
+	stockTransaction StockTransactionStore
 }
 
 // NewBatchService creates a new BatchService.
 func NewBatchService(pool *pgxpool.Pool) *BatchService {
+	return NewBatchServiceWithDeps(
+		pool, poolTxStarter(pool),
+		&repositories.ProductRepository{},
+		&repositories.BatchRepository{},
+		&repositories.StockTransactionRepository{},
+	)
+}
+
+// NewBatchServiceWithDeps wires the batch domain with injectable dependencies,
+// enabling unit tests with mocked repositories and a fake transaction runner.
+func NewBatchServiceWithDeps(db repositories.Querier, tx TxStarter, products ProductStore, batches BatchStore, stockTransaction StockTransactionStore) *BatchService {
 	return &BatchService{
-		pool:             pool,
-		products:         &repositories.ProductRepository{},
-		batches:          &repositories.BatchRepository{},
-		stockTransaction: &repositories.StockTransactionRepository{},
+		db:               db,
+		tx:               tx,
+		products:         products,
+		batches:          batches,
+		stockTransaction: stockTransaction,
 	}
 }
 
@@ -56,7 +69,7 @@ func (s *BatchService) Receive(ctx context.Context, req schemas.CreateBatchReque
 	}
 
 	var batch models.InventoryBatch
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		product, getErr := s.products.GetProductByID(ctx, tx, productID)
 		if getErr != nil {
 			if errors.Is(getErr, pgx.ErrNoRows) {
@@ -103,14 +116,14 @@ func (s *BatchService) ListActiveByProduct(ctx context.Context, productIDStr str
 		return nil, ErrInvalidRequest
 	}
 
-	if _, getErr := s.products.GetProductByID(ctx, s.pool, productID); getErr != nil {
+	if _, getErr := s.products.GetProductByID(ctx, s.db, productID); getErr != nil {
 		if errors.Is(getErr, pgx.ErrNoRows) {
 			return nil, ErrProductNotFound
 		}
 		return nil, fmt.Errorf("get product: %w", getErr)
 	}
 
-	batches, err := s.batches.GetActiveBatchesByProduct(ctx, s.pool, productID)
+	batches, err := s.batches.GetActiveBatchesByProduct(ctx, s.db, productID)
 	if err != nil {
 		return nil, fmt.Errorf("list batches: %w", err)
 	}
@@ -128,7 +141,7 @@ func (s *BatchService) Quarantine(ctx context.Context, batchIDStr string) (model
 	}
 
 	var batch models.InventoryBatch
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		batch, err = s.batches.GetBatchByIDForUpdate(ctx, tx, batchID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {

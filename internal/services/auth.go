@@ -30,20 +30,33 @@ var (
 
 // AuthService issues tokens and manages user credentials.
 type AuthService struct {
-	pool       *pgxpool.Pool
-	users      *repositories.UserRepository
-	refresh    *repositories.RefreshTokenRepository
+	db         repositories.Querier
+	tx         TxStarter
+	users      UserStore
+	refresh    RefreshTokenStore
 	jwtSecret  []byte
 	accessTTL  time.Duration
 	refreshTTL time.Duration
 }
 
-// NewAuthService wires the auth domain.
+// NewAuthService wires the auth domain against a real connection pool.
 func NewAuthService(pool *pgxpool.Pool, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
+	return NewAuthServiceWithDeps(
+		pool, poolTxStarter(pool),
+		&repositories.UserRepository{},
+		&repositories.RefreshTokenRepository{},
+		jwtSecret, accessTTL, refreshTTL,
+	)
+}
+
+// NewAuthServiceWithDeps wires the auth domain with injectable dependencies,
+// enabling unit tests with mocked repositories and a fake transaction runner.
+func NewAuthServiceWithDeps(db repositories.Querier, tx TxStarter, users UserStore, refresh RefreshTokenStore, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
 	return &AuthService{
-		pool:       pool,
-		users:      &repositories.UserRepository{},
-		refresh:    &repositories.RefreshTokenRepository{},
+		db:         db,
+		tx:         tx,
+		users:      users,
+		refresh:    refresh,
 		jwtSecret:  []byte(jwtSecret),
 		accessTTL:  accessTTL,
 		refreshTTL: refreshTTL,
@@ -63,7 +76,7 @@ func (s *AuthService) Register(ctx context.Context, req schemas.RegisterRequest)
 	}
 
 	var user models.User
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		user, err = s.users.CreateUser(ctx, tx, repositories.CreateUserParams{
 			Username:     req.Username,
 			Email:        req.Email,
@@ -95,7 +108,7 @@ func (s *AuthService) Register(ctx context.Context, req schemas.RegisterRequest)
 
 // Login verifies credentials and returns a token pair.
 func (s *AuthService) Login(ctx context.Context, req schemas.LoginRequest) (schemas.TokenResponse, error) {
-	user, err := s.users.GetUserByIdentifier(ctx, s.pool, req.Identifier)
+	user, err := s.users.GetUserByIdentifier(ctx, s.db, req.Identifier)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return schemas.TokenResponse{}, ErrInvalidCredentials
 	}
@@ -112,7 +125,7 @@ func (s *AuthService) Login(ctx context.Context, req schemas.LoginRequest) (sche
 		return schemas.TokenResponse{}, fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	_, err = s.refresh.CreateRefreshToken(ctx, s.pool, repositories.CreateRefreshTokenParams{
+	_, err = s.refresh.CreateRefreshToken(ctx, s.db, repositories.CreateRefreshTokenParams{
 		UserID:    user.ID,
 		TokenHash: refreshHash,
 		ExpiresAt: time.Now().Add(s.refreshTTL),
@@ -131,7 +144,7 @@ func (s *AuthService) Login(ctx context.Context, req schemas.LoginRequest) (sche
 // Refresh rotates a refresh token and returns a new access token pair.
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (schemas.TokenResponse, error) {
 	hash := hashToken(refreshToken)
-	token, err := s.refresh.FindByHash(ctx, s.pool, hash)
+	token, err := s.refresh.FindByHash(ctx, s.db, hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return schemas.TokenResponse{}, ErrInvalidRefreshToken
 	}
@@ -145,7 +158,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (schemas
 		return schemas.TokenResponse{}, ErrInvalidRefreshToken
 	}
 
-	user, err := s.users.GetUserByID(ctx, s.pool, token.UserID)
+	user, err := s.users.GetUserByID(ctx, s.db, token.UserID)
 	if err != nil {
 		return schemas.TokenResponse{}, fmt.Errorf("get user: %w", err)
 	}
@@ -158,7 +171,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (schemas
 		return schemas.TokenResponse{}, fmt.Errorf("generate refresh token: %w", err)
 	}
 
-	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+	err = s.tx(ctx, func(tx pgx.Tx) error {
 		if getErr := s.refresh.Revoke(ctx, tx, hash); getErr != nil {
 			return getErr
 		}
@@ -182,7 +195,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (schemas
 // Logout revokes the given refresh token.
 func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
 	hash := hashToken(refreshToken)
-	err := s.refresh.Revoke(ctx, s.pool, hash)
+	err := s.refresh.Revoke(ctx, s.db, hash)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("revoke refresh token: %w", err)
 	}
@@ -196,7 +209,7 @@ func (s *AuthService) Me(ctx context.Context, userID string) (schemas.MeResponse
 		return schemas.MeResponse{}, ErrInvalidCredentials
 	}
 
-	user, err := s.users.GetUserByID(ctx, s.pool, id)
+	user, err := s.users.GetUserByID(ctx, s.db, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return schemas.MeResponse{}, ErrInvalidCredentials
 	}
