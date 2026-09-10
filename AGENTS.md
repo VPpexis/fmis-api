@@ -12,7 +12,7 @@
 - CI also enforces `go mod tidy && git diff --exit-code` — commit with tidy go.mod/go.sum. Direct deps: `caarlos0/env/v11`, `go-chi/chi/v5`, `jackc/pgx/v5`, `golang-jwt/jwt/v5`, `go-playground/validator/v10`, `stretchr/testify`, `swaggo/swag` + `swaggo/http-swagger/v2`.
 - Local dev DB: `docker compose up db` (compose reads `.env.local`, which is gitignored). Its `DATABASE_URL` points at host `db` — only resolvable inside the compose network; for host-side `go run`, override with `localhost:5432`.
 - Integration tests (incl. `tests/integration/`) use `DATABASE_URL` or default to the compose DB (`localhost:5432/fmis_db`); start it with `docker compose up db` first. Each test creates and drops its own schema, so it never touches dev data.
-- Migrations use the Atlas CLI (not a Go dep; not installed here). `atlas.hcl` + `migrations/` exist; use `atlas migrate diff|apply --env local`.
+- Migrations use the Atlas CLI (not a Go dep); `atlas.hcl` + `migrations/` exist; use `atlas migrate diff|apply --env local`. The `local` env targets `localhost:5432/fmis_db` directly (compose maps the port), so migrations can be applied from the host.
 - Toolchain: Go 1.26+, entry point is fixed at `cmd/api/main.go` (Dockerfile prod stage and `.air.toml` both reference it).
 
 ## Architecture rules (enforced by design doc)
