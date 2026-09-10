@@ -82,6 +82,20 @@ docker compose up api
 
 API will be available at `http://localhost:8080`
 
+### Alternative: run the API on the host
+
+`docker compose up api` is the default. To run the API directly on the host
+(Go toolchain + `go run`), start only the database and override
+`DATABASE_URL`: the `.env.local` value points at host `db`, which only
+resolves inside the compose network.
+
+```bash
+docker compose up -d db
+DATABASE_URL='postgres://fmis:fmis_dev@localhost:5432/fmis_db?sslmode=disable' \
+  JWT_SECRET='dev-secret-change-in-production' \
+  go run ./cmd/api
+```
+
 ## Project Structure
 
 ```
