@@ -23,12 +23,12 @@ A product-grade REST API for food manufacturing inventory management, built in G
 | Middleware: JWT auth, RBAC, logging, CORS, recovery | Done (issue #16) |
 | Domain models (`internal/models`) | Done (issue #19) |
 | Auth endpoints: register + login (issue #22) | Done |
-| Repositories / schemas / services | In progress (auth domain done) |
+| Repositories / schemas / services | Done |
 | Products / batches / inventory API | Done |
 | Production: create + start (issue #46) | Done |
-| Production: complete / cancel / list (issues #45, #47) | Planned |
-| Unit tests (middleware, auth service) | Done |
-| Integration tests (`tests/`, real PostgreSQL) | Planned |
+| Production: complete / cancel / list (issues #45, #47) | Done |
+| Unit tests (middleware, services) | Done |
+| Integration tests (`tests/integration/`, real PostgreSQL) | Done (issue #63) |
 | `sqlc.yaml` | Planned (repositories handwritten for now) |
 
 See `docs/PROJECT_DESIGN.md` for the authoritative spec.
@@ -96,7 +96,10 @@ API will be available at `http://localhost:8080`
 │   ├── models/               # Domain structs mirroring the DB schema
 │   ├── repositories/         # Data access layer (pgx SQL, Querier interface)
 │   ├── schemas/              # Request/response DTOs with validator tags
-│   └── services/             # Business logic + transactions (auth)
+│   └── services/             # Business logic + transactions
+├── tests/
+│   ├── integration/          # End-to-end HTTP tests against real PostgreSQL
+│   └── testdata/             # SQL seed fixtures
 ├── migrations/               # Atlas migration files
 ├── atlas.hcl                 # Atlas config
 ├── docker-compose.yml        # Local dev environment
@@ -113,8 +116,12 @@ golangci-lint run ./...
 # Vet
 go vet ./...
 
-# Tests
+# Tests (integration tests need PostgreSQL: `docker compose up db` first)
+# They default to the compose database and isolate themselves in throwaway schemas.
 go test ./... -v -race
+
+# Point integration tests at another database
+DATABASE_URL=postgres://user:pass@localhost:5432/dbname?sslmode=disable go test ./...
 
 # Regenerate OpenAPI docs from swag annotations (run after changing router handlers)
 swag init -g cmd/api/main.go -o docs/api --parseDependency
