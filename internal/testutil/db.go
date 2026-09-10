@@ -20,10 +20,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// defaultURL points at the local dev database. CI overrides it via DATABASE_URL.
+// defaultURL points at the local dev database created by `docker compose up db`.
+// CI overrides it via DATABASE_URL. Tests isolate themselves in throwaway
+// schemas, so pointing at the dev database never touches developer data.
 //
 //nolint:gosec // localhost-only dev DB; credentials already public in atlas.hcl, CI overrides via DATABASE_URL
-const defaultURL = "postgres://fmis:fmis_dev@localhost:5432/fmis_test?sslmode=disable"
+const defaultURL = "postgres://fmis:fmis_dev@localhost:5432/fmis_db?sslmode=disable"
 
 // databaseURL returns the integration test database URL.
 func databaseURL() string {
@@ -153,6 +155,22 @@ func ResetDB(t *testing.T, pool *pgxpool.Pool) {
 		TRUNCATE stock_transactions, production_order_line_items, production_orders,
 			inventory_batches, products, users CASCADE`); err != nil {
 		t.Fatalf("reset db: %v", err)
+	}
+}
+
+// LoadSeed executes the SQL fixture file at relPath (relative to the repository
+// root) inside the caller's schema. The pool's search_path already points at
+// that schema, so unqualified table names in the seed resolve there.
+func LoadSeed(t *testing.T, pool *pgxpool.Pool, relPath string) {
+	t.Helper()
+	path := filepath.Join(repoRoot(), filepath.FromSlash(relPath))
+	//nolint:gosec // path comes from the repository's own test tree
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read seed %s: %v", relPath, err)
+	}
+	if _, err := pool.Exec(context.Background(), string(content)); err != nil {
+		t.Fatalf("load seed %s: %v", relPath, err)
 	}
 }
 
