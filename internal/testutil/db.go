@@ -46,6 +46,16 @@ func repoRoot() string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
+// skipOrFail skips when PostgreSQL is unavailable so DB-less local runs stay
+// green, but fails in CI where the workflow guarantees an ephemeral database.
+func skipOrFail(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatalf(format, args...)
+	}
+	t.Skipf(format, args...)
+}
+
 // createSchema creates a fresh, uniquely named schema in the shared database
 // and applies every migration inside it. Because the schema (and therefore
 // every table) belongs exclusively to the calling test, concurrently running
@@ -93,8 +103,9 @@ func applyMigrations(ctx context.Context, admin *pgx.Conn, schema string) error 
 	return nil
 }
 
-// Pool connects to the integration test database, skipping the test when
-// PostgreSQL is unreachable so DB-less environments stay green.
+// Pool connects to the integration test database. When PostgreSQL is
+// unreachable the test is skipped locally (DB-less environments stay green) but
+// fails in CI, where the workflow guarantees an ephemeral database.
 //
 // Each call to Pool creates a fresh schema owned by the calling test: all
 // tables created through the returned pool live in that schema, and the schema
@@ -110,12 +121,12 @@ func Pool(t *testing.T) *pgxpool.Pool {
 
 	schema, err := createSchema(ctx, url)
 	if err != nil {
-		t.Skipf("integration test skipped: no PostgreSQL: %v", err)
+		skipOrFail(t, "integration test skipped: no PostgreSQL: %v", err)
 	}
 
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
-		t.Skipf("integration test skipped: bad DATABASE_URL: %v", err)
+		skipOrFail(t, "integration test skipped: bad DATABASE_URL: %v", err)
 	}
 	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		_, execErr := conn.Exec(ctx, `SET search_path TO "`+schema+`"`)
@@ -123,7 +134,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	}
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
-		t.Skipf("integration test skipped: no PostgreSQL: %v", err)
+		skipOrFail(t, "integration test skipped: no PostgreSQL: %v", err)
 	}
 	t.Cleanup(pool.Close)
 
@@ -141,7 +152,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	})
 
 	if err := pool.Ping(ctx); err != nil {
-		t.Skipf("integration test skipped no PostgreSQL: %v", err)
+		skipOrFail(t, "integration test skipped: no PostgreSQL: %v", err)
 	}
 	return pool
 }
