@@ -32,3 +32,10 @@ go.work
 # Personal learning notes
 docs/LEARNING_NOTES*.md
 
+# Terraform
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/crash.log
+infra/tfplan
+infra/terraform.tfvars
