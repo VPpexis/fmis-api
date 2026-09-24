@@ -2,6 +2,11 @@ data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
 
+locals {
+  github_owner = split("/", var.github_repository)[0]
+  github_name  = split("/", var.github_repository)[1]
+}
+
 data "aws_iam_policy_document" "assume_role" {
   statement {
     effect  = "Allow"
@@ -21,7 +26,13 @@ data "aws_iam_policy_document" "assume_role" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
+      values = [
+        # Legacy subject format (repos created before 2026-07-15).
+        "repo:${local.github_owner}/${local.github_name}:ref:refs/heads/main",
+        # Immutable subject format (repos created on/after 2026-07-15), which
+        # appends numeric owner and repository IDs after an @ sign.
+        "repo:${local.github_owner}@${var.github_owner_id}/${local.github_name}@${var.github_repository_id}:ref:refs/heads/main",
+      ]
     }
   }
 }

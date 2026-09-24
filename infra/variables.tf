@@ -15,3 +15,15 @@ variable "github_repository" {
   type        = string
   default     = "VPpexis/fmis-api"
 }
+
+variable "github_owner_id" {
+  description = "Numeric GitHub owner ID, embedded in immutable OIDC subject claims."
+  type        = string
+  default     = "42709770"
+}
+
+variable "github_repository_id" {
+  description = "Numeric GitHub repository ID, embedded in immutable OIDC subject claims."
+  type        = string
+  default     = "1316228767"
+}
