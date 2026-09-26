@@ -14,3 +14,11 @@ env "production" {
         dir = "file://migrations"
     }
 }
+env "ec2" {
+    url = getenv("EC2_DATABASE_URL")
+    dev = "docker://postgres/16/dev"
+    src = "file://migrations/schema.hcl"
+    migration {
+        dir = "file://migrations"
+    }
+}

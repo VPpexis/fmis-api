@@ -1,9 +1,11 @@
 # AGENTS.md
 
 ## Repo state
-- **Implemented:** full stack — `cmd/api/main.go` (config, pgx pool, graceful shutdown); `internal/{config,database,middleware,models,repositories,schemas,services,routers}`; JWT auth (register/login/refresh/logout/me); products CRUD; batches receive/quarantine/FEFO list; inventory adjust/consume/transactions; production create/start/complete/cancel/list/detail; OpenAPI at `GET /docs`; Atlas migrations; CI (`linting.yml`, `test.yml`).
+- **Implemented:** full stack — `cmd/api/main.go` (config, pgx pool, graceful shutdown); `internal/{config,database,middleware,models,repositories,schemas,services,routers}`; JWT auth (register/login/refresh/logout/me); products CRUD; batches receive/quarantine/FEFO list; inventory adjust/consume/transactions; production create/start/complete/cancel/list/detail; OpenAPI at `GET /docs`; Atlas migrations; CI (`linting.yml`, `test.yml`) + release (`release.yml`); Terraform in `infra/` (ECR repo, GitHub OIDC role).
 - **Tests:** unit tests (middleware, services with testify mocks) plus integration tests in `tests/integration/` (real HTTP via `httptest.Server`). `internal/testutil` gives each test a throwaway schema with every migration applied; fixtures live in `tests/testdata/seed.sql`.
-- **Not yet implemented:** `sqlc.yaml` (repositories are handwritten).
+- **CI/CD:** `linting.yml` (lint + vet + tidy diff) and `test.yml` (ephemeral Postgres + `go test ./... -v -race`) run on PRs; `release.yml` runs on push to `main` or `workflow_dispatch`, assumes `fmis-api-github-actions` via GitHub OIDC (no static AWS keys), builds the prod `scratch` Dockerfile stage, and pushes `:<git-sha>` + `:latest` to ECR `934781888456.dkr.ecr.ap-southeast-1.amazonaws.com/fmis-api`. Repo variables `AWS_REGION` and `AWS_ROLE_ARN` must be set.
+- **Infra (`infra/`, Terraform AWS provider `~> 6.0`, random `~> 3.6`):** `aws_ecr_repository.app` (MUTABLE tags, scan-on-push) + a 14-day untagged lifecycle policy; `aws_iam_role.github_actions` trusted via GitHub OIDC with an inline least-privilege `ecr-push` policy. Phase 4 PoC DB (#76) lives in the **default VPC** (`data.aws_vpc.default`): `aws_instance.postgres` (AL2023, SSM-only admin, no SSH) with an encrypted gp3 `aws_ebs_volume` (tagged `Snapshot=daily`, `prevent_destroy`), `aws_security_group.app_tier` + `aws_security_group.db` (ingress 5432 **only** from app tier), `aws_secretsmanager_secret.db` (generated password), and an `aws_dlm_lifecycle_policy` daily snapshot policy. State/plan files are gitignored; `.terraform.lock.hcl` is committed. Resources are already applied in `ap-southeast-1`.
+- **Not yet implemented:** `sqlc.yaml` (repositories are handwritten). AWS deprecates repository-level ECR scanning (`image_scanning_configuration`); migrating to registry-level config is tracked in #77.
 - `docs/PROJECT_DESIGN.md` is the authoritative spec (layering, endpoints, RBAC matrix, entity schema, FEFO rules). Read it before implementing any feature; README is a summary.
 
 ## Commands
@@ -12,8 +14,10 @@
 - CI also enforces `go mod tidy && git diff --exit-code` — commit with tidy go.mod/go.sum. Direct deps: `caarlos0/env/v11`, `go-chi/chi/v5`, `jackc/pgx/v5`, `golang-jwt/jwt/v5`, `go-playground/validator/v10`, `stretchr/testify`, `swaggo/swag` + `swaggo/http-swagger/v2`.
 - Local dev DB: `docker compose up db` (compose reads `.env.local`, which is gitignored). Its `DATABASE_URL` points at host `db` — only resolvable inside the compose network; for host-side `go run`, override with `localhost:5432`.
 - Integration tests (incl. `tests/integration/`) use `DATABASE_URL` or default to the compose DB (`localhost:5432/fmis_db`); start it with `docker compose up db` first. Each test creates and drops its own schema, so it never touches dev data.
-- Migrations use the Atlas CLI (not a Go dep); `atlas.hcl` + `migrations/` exist; use `atlas migrate diff|apply --env local`. The `local` env targets `localhost:5432/fmis_db` directly (compose maps the port), so migrations can be applied from the host.
-- Toolchain: Go 1.26+, entry point is fixed at `cmd/api/main.go` (Dockerfile prod stage and `.air.toml` both reference it).
+- Migrations use the Atlas CLI (not a Go dep); `atlas.hcl` + `migrations/` exist; use `atlas migrate diff|apply --env local`. The `local` env targets `localhost:5432/fmis_db` directly (compose maps the port), so migrations can be applied from the host. The `ec2` env reads `EC2_DATABASE_URL` via `getenv()` for the PoC instance; reach it by SSM port-forwarding `15432 -> 5432` (`AWS-StartPortForwardingSession`), e.g. `EC2_DATABASE_URL=postgres://fmis:<urlencoded-pw>@localhost:15432/fmis_db?sslmode=disable atlas migrate apply --env ec2`.
+- Terraform: `terraform -chdir=infra fmt -check` and `terraform -chdir=infra validate` (no creds needed); `plan`/`apply` need AWS credentials. Do not run `apply` against shared state without care — ECR and the OIDC role are already live in `ap-southeast-1`.
+- Toolchain: Go 1.26+, entry point is fixed at `cmd/api/main.go` (Dockerfile prod stage and `.air.toml` both reference it). The prod image is the `scratch` stage (~9 MB); `docker compose` builds the `dev` target instead (~874 MB, includes `air`).
+- ECR image is `linux/amd64` only (GitHub-hosted runner default) — on Apple Silicon pull/run it with `--platform linux/amd64`.
 
 ## Architecture rules (enforced by design doc)
 - Layering: routers → schemas (validator tags) → services (owns transactions and `SELECT ... FOR UPDATE`) → repositories (pgx SQL). Routers contain zero raw SQL.
@@ -21,3 +25,4 @@
 - RBAC roles ADMIN / OPERATOR / VIEWER; per-endpoint matrix is in the design doc.
 - Integration tests must run against real PostgreSQL — SQLite cannot validate `SELECT ... FOR UPDATE` semantics.
 - Auth: JWT access token (15m) + refresh token (7d, SHA-256 hashed in DB), bcrypt password hashes.
+- GitHub OIDC: the role trust policy must accept **both** the legacy and immutable `sub` formats — repos created on/after 2026-07-15 send `repo:OWNER@<owner_id>/NAME@<repo_id>:ref:refs/heads/main`. IDs are pinned in `infra/variables.tf`. Getting this wrong makes `release.yml` fail with `Not authorized to perform sts:AssumeRoleWithWebIdentity`.
