@@ -52,6 +52,8 @@ See `docs/PROJECT_DESIGN.md` for the authoritative spec.
 - Go 1.26+
 - Docker & Docker Compose
 - Atlas CLI (`brew install ariga/tap/atlas`)
+- Terraform >= 1.9 (for `infra/`)
+- AWS CLI v2 + Session Manager plugin (for the PoC database; `brew install --cask session-manager-plugin`)
 
 ## Getting Started
 
@@ -115,7 +117,8 @@ DATABASE_URL='postgres://fmis:fmis_dev@localhost:5432/fmis_db?sslmode=disable' \
 │   ├── integration/          # End-to-end HTTP tests against real PostgreSQL
 │   └── testdata/             # SQL seed fixtures
 ├── migrations/               # Atlas migration files
-├── atlas.hcl                 # Atlas config
+├── atlas.hcl                 # Atlas config (local, production, ec2 envs)
+├── infra/                    # Terraform (ECR, GitHub OIDC, EC2 + EBS Postgres PoC)
 ├── docker-compose.yml        # Local dev environment
 ├── Dockerfile                # Multi-stage build (dev + prod)
 └── .golangci.yml             # Linter configuration
@@ -188,6 +191,51 @@ docker build -t fmis-api .
 ```
 
 Deployment targets AWS (ECS Fargate / App Runner). Environment variables are injected via ECS task definition (Secrets Manager for sensitive values).
+
+### Terraform (`infra/`)
+
+Terraform provisions the AWS resources in `ap-southeast-1`:
+
+- **ECR repository + GitHub OIDC role** for CI image pushes (`release.yml`).
+- **Phase 4 PoC database (issue #76):** a `t3.micro` AL2023 EC2 instance running PostgreSQL 16 on an encrypted gp3 EBS volume in the **default VPC**, with admin access via **SSM Session Manager only** (no SSH, no key pair). Credentials live in Secrets Manager, a DLM policy takes daily EBS snapshots, and the DB security group allows `5432` **only** from the app-tier security group (`fmis-api-app-tier`), which future compute attaches to.
+
+```bash
+terraform -chdir=infra init
+terraform -chdir=infra apply
+```
+
+Connect to the host and/or migrate it. Migrations reach the private DB through an SSM port-forward, so the security group never needs to be opened:
+
+```bash
+DB_ID=$(terraform -chdir=infra output -raw db_instance_id)
+SECRET_ARN=$(terraform -chdir=infra output -raw db_secret_arn)
+
+# interactive shell on the DB host (SSM; no SSH)
+aws ssm start-session --target "$DB_ID" --region ap-southeast-1
+
+# tunnel localhost:15432 -> instance:5432, then run Atlas against the PoC DB
+aws ssm start-session --target "$DB_ID" --region ap-southeast-1 \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["5432"],"localPortNumber":["15432"]}'
+
+PW=$(aws secretsmanager get-secret-value --region ap-southeast-1 \
+  --secret-id "$SECRET_ARN" --query SecretString --output text | jq -r .password)
+export EC2_DATABASE_URL="postgres://fmis:$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$PW")@localhost:15432/fmis_db?sslmode=disable"
+atlas migrate apply --env ec2
+```
+
+The generated password contains URL-special characters, so it must be percent-encoded in the connection string.
+
+**Teardown:** the data volume has `prevent_destroy = true`, so remove that guard before `terraform destroy`. DLM snapshots are not Terraform-managed and bill at $0.05/GB-month until deleted, so remove them separately:
+
+```bash
+aws ec2 describe-snapshots --owner-ids self \
+  --filters Name=tag:Snapshot,Values=daily --region ap-southeast-1 \
+  --query 'Snapshots[].SnapshotId' --output text | xargs -n1 \
+  aws ec2 delete-snapshot --region ap-southeast-1 --snapshot-id
+```
+
+Cost guardrail: an AWS Budget `fmis-api-monthly` ($5/month, alerts via the `Billing_Alert` SNS topic) was created manually with the CLI; it is not managed by Terraform.
 
 ## License
 

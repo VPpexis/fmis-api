@@ -1,0 +1,58 @@
+#!/bin/bash
+set -euo pipefail
+
+exec > >(tee /var/log/user-data.log | logger -t user-data -s) 2>&1
+
+dnf install -y "postgresql${db_engine_version}-server" jq
+
+DATA_DEVICE="${data_device}"
+DATA_MOUNT="${data_mount}"
+
+for _ in $(seq 1 60); do
+  if [ -b "$DATA_DEVICE" ]; then break; fi
+  sleep 5
+done
+[ -b "$DATA_DEVICE" ] || { echo "EBS device $DATA_DEVICE not found"; exit 1; }
+
+if ! blkid "$DATA_DEVICE" >/dev/null 2>&1; then
+  mkfs.xfs "$DATA_DEVICE"
+fi
+
+mkdir -p "$DATA_MOUNT"
+DATA_UUID=$(blkid -s UUID -o value "$DATA_DEVICE")
+grep -q "$DATA_UUID" /etc/fstab || echo "UUID=$DATA_UUID $DATA_MOUNT xfs defaults,nofail 0 2" >> /etc/fstab
+mountpoint -q "$DATA_MOUNT" || mount "$DATA_MOUNT"
+chown -R postgres:postgres "$DATA_MOUNT"
+
+PGDATA="$DATA_MOUNT/data"
+if [ ! -f "$PGDATA/PG_VERSION" ]; then
+  sudo -u postgres /usr/bin/initdb -D "$PGDATA"
+fi
+
+grep -q "^listen_addresses" "$PGDATA/postgresql.conf" || echo "listen_addresses = '*'" >> "$PGDATA/postgresql.conf"
+grep -q "${vpc_cidr}" "$PGDATA/pg_hba.conf" || echo "host all all ${vpc_cidr} scram-sha-256" >> "$PGDATA/pg_hba.conf"
+
+systemctl enable --now postgresql
+
+SECRET=""
+for _ in $(seq 1 30); do
+  if SECRET=$(aws secretsmanager get-secret-value --region "${aws_region}" --secret-id "${secret_arn}" --query SecretString --output text 2>/dev/null); then
+    break
+  fi
+  sleep 10
+done
+[ -n "$SECRET" ] || { echo "Unable to read database secret"; exit 1; }
+
+DB_PASSWORD=$(echo "$SECRET" | jq -r .password)
+
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${db_username}'" | grep -q 1; then
+  sudo -u postgres psql -c "CREATE ROLE ${db_username} LOGIN PASSWORD '$DB_PASSWORD'"
+else
+  sudo -u postgres psql -c "ALTER ROLE ${db_username} WITH LOGIN PASSWORD '$DB_PASSWORD'"
+fi
+
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${db_name}'" | grep -q 1; then
+  sudo -u postgres createdb -O "${db_username}" "${db_name}"
+fi
+
+systemctl restart postgresql
