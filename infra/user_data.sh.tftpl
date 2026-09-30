@@ -34,16 +34,16 @@ grep -q "${vpc_cidr}" "$PGDATA/pg_hba.conf" || echo "host all all ${vpc_cidr} sc
 
 systemctl enable --now postgresql
 
-SECRET=""
+PARAM=""
 for _ in $(seq 1 30); do
-  if SECRET=$(aws secretsmanager get-secret-value --region "${aws_region}" --secret-id "${secret_arn}" --query SecretString --output text 2>/dev/null); then
+  if PARAM=$(aws ssm get-parameter --region "${aws_region}" --name "${ssm_parameter_name}" --with-decryption --query Parameter.Value --output text 2>/dev/null); then
     break
   fi
   sleep 10
 done
-[ -n "$SECRET" ] || { echo "Unable to read database secret"; exit 1; }
+[ -n "$PARAM" ] || { echo "Unable to read database parameter"; exit 1; }
 
-DB_PASSWORD=$(echo "$SECRET" | jq -r .password)
+DB_PASSWORD=$(echo "$PARAM" | jq -r .password)
 
 if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${db_username}'" | grep -q 1; then
   sudo -u postgres psql -c "CREATE ROLE ${db_username} LOGIN PASSWORD '$DB_PASSWORD'"
