@@ -21,18 +21,18 @@ resource "aws_iam_role_policy_attachment" "postgres_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-data "aws_iam_policy_document" "postgres_secret_read" {
+data "aws_iam_policy_document" "postgres_param_read" {
   statement {
     effect    = "Allow"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.db.arn]
+    actions   = ["ssm:GetParameter"]
+    resources = [aws_ssm_parameter.db.arn]
   }
 }
 
-resource "aws_iam_role_policy" "postgres_secret_read" {
-  name   = "read-db-secret"
+resource "aws_iam_role_policy" "postgres_param_read" {
+  name   = "read-db-param"
   role   = aws_iam_role.postgres.id
-  policy = data.aws_iam_policy_document.postgres_secret_read.json
+  policy = data.aws_iam_policy_document.postgres_param_read.json
 }
 
 resource "aws_iam_instance_profile" "postgres" {
@@ -77,14 +77,14 @@ resource "aws_instance" "postgres" {
   }
 
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    aws_region        = var.aws_region
-    secret_arn        = aws_secretsmanager_secret.db.arn
-    db_name           = var.db_name
-    db_username       = var.db_username
-    db_engine_version = var.db_engine_version
-    vpc_cidr          = data.aws_vpc.default.cidr_block
-    data_device       = "/dev/sdf"
-    data_mount        = "/var/lib/pgsql"
+    aws_region         = var.aws_region
+    ssm_parameter_name = aws_ssm_parameter.db.name
+    db_name            = var.db_name
+    db_username        = var.db_username
+    db_engine_version  = var.db_engine_version
+    vpc_cidr           = data.aws_vpc.default.cidr_block
+    data_device        = "/dev/sdf"
+    data_mount         = "/var/lib/pgsql"
   })
 
   user_data_replace_on_change = true
@@ -92,8 +92,8 @@ resource "aws_instance" "postgres" {
   tags = merge(local.common_tags, { Name = "${var.project}-postgres" })
 
   depends_on = [
-    aws_secretsmanager_secret_version.db,
-    aws_iam_role_policy.postgres_secret_read,
+    aws_ssm_parameter.db,
+    aws_iam_role_policy.postgres_param_read,
   ]
 }
 

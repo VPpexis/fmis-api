@@ -197,7 +197,7 @@ Deployment targets AWS (ECS Fargate / App Runner). Environment variables are inj
 Terraform provisions the AWS resources in `ap-southeast-1`:
 
 - **ECR repository + GitHub OIDC role** for CI image pushes (`release.yml`).
-- **Phase 4 PoC database (issue #76):** a `t3.micro` AL2023 EC2 instance running PostgreSQL 16 on an encrypted gp3 EBS volume in the **default VPC**, with admin access via **SSM Session Manager only** (no SSH, no key pair). Credentials live in Secrets Manager, a DLM policy takes daily EBS snapshots, and the DB security group allows `5432` **only** from the app-tier security group (`fmis-api-app-tier`), which future compute attaches to.
+- **Phase 4 PoC database (issue #76):** a `t3.micro` AL2023 EC2 instance running PostgreSQL 16 on an encrypted gp3 EBS volume in the **default VPC**, with admin access via **SSM Session Manager only** (no SSH, no key pair). Credentials live in an SSM Parameter Store `SecureString` parameter, a DLM policy takes daily EBS snapshots, and the DB security group allows `5432` **only** from the app-tier security group (`fmis-api-app-tier`), which future compute attaches to.
 
 ```bash
 terraform -chdir=infra init
@@ -208,7 +208,7 @@ Connect to the host and/or migrate it. Migrations reach the private DB through a
 
 ```bash
 DB_ID=$(terraform -chdir=infra output -raw db_instance_id)
-SECRET_ARN=$(terraform -chdir=infra output -raw db_secret_arn)
+PARAM_NAME=$(terraform -chdir=infra output -raw db_ssm_parameter_name)
 
 # interactive shell on the DB host (SSM; no SSH)
 aws ssm start-session --target "$DB_ID" --region ap-southeast-1
@@ -218,8 +218,9 @@ aws ssm start-session --target "$DB_ID" --region ap-southeast-1 \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["5432"],"localPortNumber":["15432"]}'
 
-PW=$(aws secretsmanager get-secret-value --region ap-southeast-1 \
-  --secret-id "$SECRET_ARN" --query SecretString --output text | jq -r .password)
+PW=$(aws ssm get-parameter --region ap-southeast-1 \
+  --name "$PARAM_NAME" --with-decryption \
+  --query Parameter.Value --output text | jq -r .password)
 export EC2_DATABASE_URL="postgres://fmis:$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$PW")@localhost:15432/fmis_db?sslmode=disable"
 atlas migrate apply --env ec2
 ```
